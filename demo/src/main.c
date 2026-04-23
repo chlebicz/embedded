@@ -7,7 +7,15 @@
 #include "oled.h"
 #include "light.h"
 
-static int curr_value = 0;
+#define LUX_DARK_THRESHOLD   100
+#define LUX_LIGHT_THRESHOLD  150
+
+static oled_color_t oled_bg = OLED_COLOR_BLACK; // Aktualny kolor tła
+static oled_color_t oled_fg = OLED_COLOR_WHITE; // Aktualny kolor tekstu
+static uint8_t* oled_message = (uint8_t*)"";    // Aktualna treść z joysticka
+static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
+
+static int curr_value = 0;						// Moc silnika
 
 static void rotate_motor(uint8_t joyState)
 {
@@ -40,15 +48,6 @@ static void rotate_motor(uint8_t joyState)
     	my_set_pwm_value(2, 0);
     }
 }
-
-/// 1. Definicje i współdzielony stan (na górze pliku)
-#define LUX_DARK_THRESHOLD   100
-#define LUX_LIGHT_THRESHOLD  150
-
-static oled_color_t oled_bg = OLED_COLOR_BLACK; // Aktualny kolor tła
-static oled_color_t oled_fg = OLED_COLOR_WHITE; // Aktualny kolor tekstu
-static uint8_t* oled_message = (uint8_t*)"";    // Aktualna treść z joysticka
-static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
 
 static void refresh_oled_display(void) {
     oled_clearScreen(oled_bg);
@@ -195,10 +194,10 @@ static void init_i2c(void)
 
 	/* Initialize I2C2 pin connect */
 	PinCfg.Funcnum = 2;
-	PinCfg.Pinnum = 10;
+	PinCfg.Pinnum = 10; //GPIO_26-SDA P0.10 - do przesyłania danych
 	PinCfg.Portnum = 0;
 	PINSEL_ConfigPin(&PinCfg);
-	PinCfg.Pinnum = 11;
+	PinCfg.Pinnum = 11; //GPIO_27-SCL P0.11 - do synchronizacji
 	PINSEL_ConfigPin(&PinCfg);
 
 	// Initialize I2C peripheral
@@ -224,9 +223,6 @@ int main (void) {
     oled_clearScreen(OLED_COLOR_BLACK);
     while (1) {
 
-        /* ####### Motor and oled ###### */
-        /* # */
-
         update_oled_theme_based_on_light();
 		state = joystick_read();
 		if (state != 0) {
@@ -234,9 +230,6 @@ int main (void) {
 			rotate_motor(state);
 			update_oled_message(state);
 		}
-
-        /* # */
-        /* ############################################# */
 
         Timer0_Wait(1);
     }
