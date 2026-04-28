@@ -54,13 +54,13 @@ static void rotate_motor(uint8_t joyState)
 
   if (curr_value > 0)
   {
-    my_set_pwm_value(1, curr_value);
-    my_set_pwm_value(2, 0);
+    my_set_pwm_value(1, curr_value); // Pin P2.0 dostaje sygnał PWM (pulsujące napięcie)
+    my_set_pwm_value(2, 0);          // Pin P2.3 jest zwarty do masy (GND)
   }
   else if (curr_value < 0)
   {
-    my_set_pwm_value(1, 0);
-    my_set_pwm_value(2, -curr_value);
+    my_set_pwm_value(1, 0);           // Pin P2.0 jest zwarty do masy
+    my_set_pwm_value(2, -curr_value); // Pin P2.3 dostaje sygnał PWM
   }
   else
   {
@@ -139,6 +139,8 @@ void update_oled_message()
 
   oled_clearScreen(oled_bg);
 
+  // 96x64 pixel rozdzielczość oled
+
   if (state[0] != '\0')
   {
     oled_putString(6, 10, state, oled_fg, oled_bg);
@@ -154,6 +156,7 @@ static void init_pwm(void)
 {
   LPC_PWM1->MR0 = 1000; // okres pwm
   LPC_PWM1->LER |= (1 << 0); // zatwierdzenie MR0
+  // rejestry MR są 32-bitowe
 
   // bit 0 - wlaczenie glownego licznika i prescalera
   // bit 3 - pwm enable
@@ -253,6 +256,7 @@ static void init_i2c(void)
   PINSEL_ConfigPin(&PinCfg);
 
   // Initialize I2C peripheral
+  // 100kHZ - taktowanie zegara SCL
   I2C_Init(LPC_I2C2, 100000);
 
   /* Enable I2C1 operation */
