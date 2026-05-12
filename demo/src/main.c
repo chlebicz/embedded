@@ -6,6 +6,12 @@
 #include "joystick.h"
 #include "oled.h"
 #include "light.h"
+#include "acc.h"
+#include "led7seg.h"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #define LUX_DARK_THRESHOLD   100
 #define LUX_LIGHT_THRESHOLD  150
@@ -263,15 +269,22 @@ static void init_i2c(void)
   I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
+static int8_t accReadToDeg(int8_t value){
+  return asin(value/64)* (180 / M_PI);
+}
+
 int main(void)
 {
   uint8_t state = 0;
+  int8_t x = 0; //(lewo – prawo)
+  int8_t y = 0; //(przód – tył)
+  int8_t z = 0; //(góra – dół)
 
   init_i2c();
   init_ssp();
   init_pwm();
   light_enable();
-
+  acc_init();
   joystick_init();
   oled_init();
 
@@ -280,6 +293,13 @@ int main(void)
   {
     update_oled_theme_based_on_light();
     state = joystick_read();
+    acc_read(&x, &y, &z);
+    uint16_t ledOn = 0;
+    
+    
+    if(accReadToDeg(x)>15||accReadToDeg(y)>15)
+      pca9532_setLeds(ledOn, 0xffff);
+    
     if (state != 0)
     {
       rotate_motor(state);
