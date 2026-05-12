@@ -2,6 +2,7 @@
 #include "lpc17xx_gpio.h"
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
+#include "lpc17xx_timer.h"
 
 #include "joystick.h"
 #include "oled.h"
@@ -22,11 +23,59 @@ static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
 
 static int curr_value = 0;                      // Moc silnika
 
+volatile uint8_t ticks = 0;
+
+void timer_reset(void)
+{
+	ticks = 0;
+
+	TIM_TIMERCFG_Type TIM_ConfigStruct;
+	TIM_MATCHCFG_Type TIM_MatchConfigStruct;
+
+	// Konfiguracja timera na odliczanie w milisekundach (1000 us = 1 ms)
+	TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+	TIM_ConfigStruct.PrescaleValue = 1000;
+
+	// Konfiguracja rejestru dopasowania (Match 0) na 5000 ms
+	TIM_MatchConfigStruct.MatchChannel = 0;
+	TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 5000
+	TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
+	TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
+	TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
+	TIM_MatchConfigStruct.MatchValue = 1000;
+
+	// Inicjalizacja
+	TIM_Init(LPC_TIM1, TIM_TIMER_MODE, &TIM_ConfigStruct);
+	TIM_ConfigMatch(LPC_TIM1, &TIM_MatchConfigStruct);
+
+	// Włączenie przerwań dla Timera 1 w kontrolerze NVIC
+	NVIC_SetPriority(TIMER1_IRQn, 10);
+	NVIC_EnableIRQ(TIMER1_IRQn);
+}
+
+void timer_stop(void) {
+	NVIC_DisableIRQ(TIMER1_IRQn);
+	ticks = 0;
+}
+
+
+// 5. The Handler
+void TIMER1_IRQHandler(void) {
+    // Check if the interrupt came from Match 0
+    if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET) {
+    	ticks++;
+
+        // Clear the interrupt flag so it doesn't loop infinitely
+        TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
+    }
+}
+
 static void rotate_motor(uint8_t joyState)
 {
   if ((joyState & JOYSTICK_CENTER) != 0)
   {
     curr_value = 0;
+    TIM_Cmd(LPC_TIM1, ENABLE);
   }
 
   if (curr_value < 500 && curr_value > 0)
@@ -132,7 +181,7 @@ void update_oled_message()
   uint8_t hundreds = ((abs_val(curr_value) / 100) % 10) + '0';
   uint8_t thousands = ((abs_val(curr_value) / 1000) % 10) + '0';
 
-  if (curr_value == 1000)
+  if (curr_value == 1000 || curr_value == -1000)
   {
     thousands = '5';
   }
@@ -270,12 +319,15 @@ static void init_i2c(void)
 }
 
 static int8_t accReadToDeg(int8_t value){
-  return asin(value/64)* (180 / M_PI);
+  return asin(value/64.0) * (180.0/M_PI);
 }
 
 int main(void)
 {
   uint8_t state = 0;
+  int8_t xoff = 0;
+  int8_t yoff = 0;
+  int8_t zoff = 0;
   int8_t x = 0; //(lewo – prawo)
   int8_t y = 0; //(przód – tył)
   int8_t z = 0; //(góra – dół)
@@ -283,10 +335,18 @@ int main(void)
   init_i2c();
   init_ssp();
   init_pwm();
-  light_enable();
   acc_init();
+  light_enable();
+
   joystick_init();
   oled_init();
+//  timer_reset();
+
+  acc_read(&x, &y, &z);
+
+    xoff = 0-x;
+    yoff = 0-y;
+    zoff = 0-z;
 
   oled_clearScreen(OLED_COLOR_BLACK);
   while (1)
@@ -294,22 +354,58 @@ int main(void)
     update_oled_theme_based_on_light();
     state = joystick_read();
     acc_read(&x, &y, &z);
-    uint16_t ledOn = 0;
-    
-    
-    if(accReadToDeg(x)>15||accReadToDeg(y)>15)
-      pca9532_setLeds(ledOn, 0xffff);
-    
+    x = x+xoff;
+    y = y+xoff;
+    z = z+xoff;
+
+    uint16_t ledOn = 0xffff;
+        pca9532_setLeds(0x0000, 0xffff);
+
+        if(x>7 || x<-7)
+          pca9532_setLeds(0x003, 0xffff);
+        if(x>17 || x<-17)
+                  pca9532_setLeds(0x000F, 0xffff);
+        if(x>25 || x<-25)
+                  pca9532_setLeds(0x003f, 0xffff);
+        if(x>32 || x<-32)
+                  pca9532_setLeds(0x00ff, 0xffff);
+
     if (state != 0)
     {
       rotate_motor(state);
 
       static int prev_value = 69;
+
+      if (abs_val(curr_value - prev_value) > 100 && curr_value != 0) {
+    	  timer_reset();
+      }
+
+      if (curr_value == 0) {
+    	  timer_stop();
+      }
+
       if (prev_value != curr_value)
       {
         update_oled_message();
         prev_value = curr_value;
       }
+    }
+
+//    uint8_t ticks = LPC_TIM1->TC;
+
+    uint8_t units = (ticks % 10) + '0';
+    uint8_t tens = ((ticks / 10) % 10) + '0';
+    uint8_t value[] = "00";
+    value[0] = tens;
+    value[1] = units;
+//    uint8_t value[] = {ticks + '0', '\0'};
+    oled_putString(6, 30, value, oled_fg, oled_bg);
+    if (ticks >= 30) {
+    	uint8_t alert[] = "ACHTUNG";
+    	oled_putString(6, 40, alert, oled_fg, oled_bg);
+    }
+    if (ticks == 0) {
+    	oled_putString(6, 40, "\0", oled_fg, oled_bg);
     }
 
     Timer0_Wait(1);
@@ -324,3 +420,4 @@ void check_failed(uint8_t *file, uint32_t line)
   /* Infinite loop */
   while(1);
 }
+
