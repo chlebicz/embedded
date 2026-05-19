@@ -49,41 +49,51 @@ const int SAMPLE_RATE = 8000; // hz
 
 static void bee_init(void)
 {
-  // Configure P0.26 as AOUT (DAC)
+  // 1. OBUDŹ WZMACNIACZ LM4811
+  // Ustawienie pinów sterujących wzmacniaczem jako wyjścia
+  GPIO_SetDir(0, 1<<27, 1);
+  GPIO_SetDir(0, 1<<28, 1);
+  GPIO_SetDir(2, 1<<13, 1);
+  GPIO_SetDir(0, 1<<26, 1);
+
+  // Stan niski na pinie 2.13 wyłącza tryb "shutdown" wzmacniacza
+  GPIO_ClearValue(0, 1<<27); // LM4811-clk
+  GPIO_ClearValue(0, 1<<28); // LM4811-up/dn
+  GPIO_ClearValue(2, 1<<13); // LM4811-shutdn
+
+  // 2. SKONFIGURUJ PIN DAC
   PINSEL_CFG_Type PinCfgDAC;
-  PinCfgDAC.Funcnum = 2;   // Func 2 is AOUT
+  PinCfgDAC.Funcnum = 2;   // Func 2 to AOUT (DAC)
   PinCfgDAC.OpenDrain = 0;
   PinCfgDAC.Pinmode = 0;
   PinCfgDAC.Portnum = 0;
   PinCfgDAC.Pinnum = 26;
   PINSEL_ConfigPin(&PinCfgDAC);
 
+  // Inicjalizacja peryferium DAC
+  DAC_Init(LPC_DAC);
+
+  // 3. SKONFIGURUJ TIMER 2
   TIM_TIMERCFG_Type TIM_ConfigStruct;
   TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
-  // Włącz zasilanie dla Timera 2 (bit 22 w rejestrze PCONP).
-  // Timer 0 i 1 są włączone domyślnie, ale Timer 2 i 3 wymagają ręcznego startu.
-  LPC_SC->PCONP |= (1 << 22);
+  LPC_SC->PCONP |= (1 << 22); // Zasilanie Timera 2
 
-  // Konfiguracja timera na odliczanie w mikrosekundach
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
   TIM_ConfigStruct.PrescaleValue = 1;
 
-  // Konfiguracja rejestru dopasowania (Match 0) na 5000 ms
   TIM_MatchConfigStruct.MatchChannel = 0;
-  TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 5000
-  TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
-  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE; 
+  TIM_MatchConfigStruct.ResetOnMatch = ENABLE; 
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE; 
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
 
-  // sample duration in microseconds
+  // Czas trwania jednej próbki w mikrosekundach
   TIM_MatchConfigStruct.MatchValue = 1000000 / SAMPLE_RATE;
 
-  // Inicjalizacja Timera 2
   TIM_Init(LPC_TIM2, TIM_TIMER_MODE, &TIM_ConfigStruct);
   TIM_ConfigMatch(LPC_TIM2, &TIM_MatchConfigStruct);
 
-  // Włączenie przerwań dla Timera 2 w kontrolerze NVIC
   NVIC_SetPriority(TIMER2_IRQn, 10);
   NVIC_EnableIRQ(TIMER2_IRQn);
 
@@ -103,25 +113,34 @@ void TIMER1_IRQHandler(void) {
   }
 }
 
-volatile int current_sample_index = 0;
+// Obliczamy dokładny rozmiar tablicy automatycznie
+#define FATBEE_SIZE (sizeof(fatbee) / sizeof(fatbee[0]))
 
-const int bee_duration = 5; // seconds
-const int total_samples = SAMPLE_RATE * bee_duration;
+#define AUDIO_START_OFFSET 44
+
+volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
 
 void TIMER2_IRQHandler(void)
 {
-  // Sprawdź, czy przerwanie pochodzi od kanału Match 0
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
   {
-    // Wyczyść flagę przerwania (wymagane, by nie wejść w pętlę nieskończoną)
+    // Wyczyść flagę przerwania
     TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
-    LPC_DAC->DACR = (fatbee[current_sample_index] & 0x3FF) << 6;
+    // Pobierz 8-bitową próbkę (wartość od 0 do 255)
+    uint32_t sample = (uint32_t)fatbee[current_sample_index];
 
-    // 3. Move to the next sample
+    // Zapisz do DAC. 
+    // Przesuwamy w lewo o 2 (<< 2), żeby przekonwertować z 8-bitów na 10-bitów.
+    // Dzięki temu DAC zagra na 100% głośności.
+    DAC_UpdateValue(LPC_DAC, sample << 2);
+
+    // Przejdź do następnej próbki
     current_sample_index++;
-    if (current_sample_index >= total_samples) {
-      current_sample_index = 0; // Loop the audio
+    
+    // Jeśli dotarliśmy do końca tablicy, wróć na początek
+    if (current_sample_index >= FATBEE_SIZE) {
+      current_sample_index = AUDIO_START_OFFSET; 
     }
   }
 }
