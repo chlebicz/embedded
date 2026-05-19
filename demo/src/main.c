@@ -8,6 +8,8 @@
 #include "oled.h"
 #include "light.h"
 
+#include "fatbee.h"
+
 #define LUX_DARK_THRESHOLD   100
 #define LUX_LIGHT_THRESHOLD  150
 
@@ -43,17 +45,75 @@ static void timer_init(void)
 	NVIC_EnableIRQ(TIMER1_IRQn);
 }
 
+const int SAMPLE_RATE = 8000; // hz
+
+static void bee_timer_init(void)
+{
+  TIM_TIMERCFG_Type TIM_ConfigStruct;
+  TIM_MATCHCFG_Type TIM_MatchConfigStruct;
+
+  // Włącz zasilanie dla Timera 2 (bit 22 w rejestrze PCONP).
+  // Timer 0 i 1 są włączone domyślnie, ale Timer 2 i 3 wymagają ręcznego startu.
+  LPC_SC->PCONP |= (1 << 22);
+
+  // Konfiguracja timera na odliczanie w mikrosekundach
+  TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+  TIM_ConfigStruct.PrescaleValue = 1;
+
+  // Konfiguracja rejestru dopasowania (Match 0) na 5000 ms
+  TIM_MatchConfigStruct.MatchChannel = 0;
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 5000
+  TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
+  TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
+
+  // sample duration: 60 / SAMPLE_RATE = seconds
+  // * 10^6 -> microseconds
+  TIM_MatchConfigStruct.MatchValue = 60 / SAMPLE_RATE * 1000000;
+
+  // Inicjalizacja Timera 2
+  TIM_Init(LPC_TIM2, TIM_TIMER_MODE, &TIM_ConfigStruct);
+  TIM_ConfigMatch(LPC_TIM2, &TIM_MatchConfigStruct);
+
+  // Włączenie przerwań dla Timera 2 w kontrolerze NVIC
+  NVIC_SetPriority(TIMER2_IRQn, 10);
+  NVIC_EnableIRQ(TIMER2_IRQn);
+}
+
 volatile uint8_t ticks = 0;
 
 // 5. The Handler
 void TIMER1_IRQHandler(void) {
-    // Check if the interrupt came from Match 0
-    if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET) {
-    	ticks++;
+  // Check if the interrupt came from Match 0
+  if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET) {
+    ticks++;
 
-        // Clear the interrupt flag so it doesn't loop infinitely
-        TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
+      // Clear the interrupt flag so it doesn't loop infinitely
+      TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
+  }
+}
+
+volatile int current_sample_index = 0;
+
+const int bee_duration = 5; // seconds
+const int total_samples = SAMPLE_RATE * bee_duration;
+
+void TIMER2_IRQHandler(void)
+{
+  // Sprawdź, czy przerwanie pochodzi od kanału Match 0
+  if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
+  {
+    // Wyczyść flagę przerwania (wymagane, by nie wejść w pętlę nieskończoną)
+    TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
+
+    LPC_DAC->DACR = (fatbee[current_sample_index] & 0x3FF) << 6;
+
+    // 3. Move to the next sample
+    current_sample_index++;
+    if (current_sample_index >= total_samples) {
+      current_sample_index = 0; // Loop the audio
     }
+  }
 }
 
 static void rotate_motor(uint8_t joyState)
@@ -316,6 +376,8 @@ int main(void)
   joystick_init();
   oled_init();
   timer_init();
+
+  bee_timer_init();
 
   oled_clearScreen(OLED_COLOR_BLACK);
   while (1)
