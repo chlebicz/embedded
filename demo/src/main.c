@@ -47,8 +47,17 @@ static void timer_init(void)
 
 const int SAMPLE_RATE = 8000; // hz
 
-static void bee_timer_init(void)
+static void bee_init(void)
 {
+  // Configure P0.26 as AOUT (DAC)
+  PINSEL_CFG_Type PinCfgDAC;
+  PinCfgDAC.Funcnum = 2;   // Func 2 is AOUT
+  PinCfgDAC.OpenDrain = 0;
+  PinCfgDAC.Pinmode = 0;
+  PinCfgDAC.Portnum = 0;
+  PinCfgDAC.Pinnum = 26;
+  PINSEL_ConfigPin(&PinCfgDAC);
+
   TIM_TIMERCFG_Type TIM_ConfigStruct;
   TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
@@ -67,9 +76,8 @@ static void bee_timer_init(void)
   TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
 
-  // sample duration: 60 / SAMPLE_RATE = seconds
-  // * 10^6 -> microseconds
-  TIM_MatchConfigStruct.MatchValue = 60 / SAMPLE_RATE * 1000000;
+  // sample duration in microseconds
+  TIM_MatchConfigStruct.MatchValue = 1000000 / SAMPLE_RATE;
 
   // Inicjalizacja Timera 2
   TIM_Init(LPC_TIM2, TIM_TIMER_MODE, &TIM_ConfigStruct);
@@ -78,6 +86,8 @@ static void bee_timer_init(void)
   // Włączenie przerwań dla Timera 2 w kontrolerze NVIC
   NVIC_SetPriority(TIMER2_IRQn, 10);
   NVIC_EnableIRQ(TIMER2_IRQn);
+
+  TIM_Cmd(LPC_TIM2, ENABLE);
 }
 
 volatile uint8_t ticks = 0;
@@ -377,7 +387,7 @@ int main(void)
   oled_init();
   timer_init();
 
-  bee_timer_init();
+  bee_init();
 
   oled_clearScreen(OLED_COLOR_BLACK);
   while (1)
