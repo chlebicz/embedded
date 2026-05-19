@@ -47,6 +47,26 @@ static void timer_init(void)
 
 const int SAMPLE_RATE = 8000; // hz
 
+// Krótki delay dla sygnału zegarowego wzmacniacza
+static void delay_us(uint32_t us) {
+    for (volatile uint32_t i = 0; i < (us * 30); i++) {} // Przybliżone opóźnienie
+}
+
+static void maximize_amplifier_volume(void) {
+    // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
+    GPIO_SetValue(0, 1<<28); 
+    
+    // LM4811 ma 16 poziomów głośności. 
+    // Wysłanie 16 impulsów gwarantuje osiągnięcie absolutnego maksimum.
+    for (int i = 0; i < 16; i++) {
+        // Impuls zegara (Wysoki -> Niski)
+        GPIO_SetValue(0, 1<<27);   // CLK High
+        delay_us(10);              // Krótka przerwa
+        GPIO_ClearValue(0, 1<<27); // CLK Low
+        delay_us(10);              // Krótka przerwa
+    }
+}
+
 static void bee_init(void)
 {
   // 1. OBUDŹ WZMACNIACZ LM4811
@@ -60,6 +80,8 @@ static void bee_init(void)
   GPIO_ClearValue(0, 1<<27); // LM4811-clk
   GPIO_ClearValue(0, 1<<28); // LM4811-up/dn
   GPIO_ClearValue(2, 1<<13); // LM4811-shutdn
+
+  maximize_amplifier_volume();
 
   // 2. SKONFIGURUJ PIN DAC
   PINSEL_CFG_Type PinCfgDAC;
