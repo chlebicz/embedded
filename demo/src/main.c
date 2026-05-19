@@ -364,11 +364,20 @@ int main(void)
         if(x>7 || x<-7)
           pca9532_setLeds(0x003, 0xffff);
         if(x>17 || x<-17)
-                  pca9532_setLeds(0x000F, 0xffff);
+          pca9532_setLeds(0x000F, 0xffff);
         if(x>25 || x<-25)
-                  pca9532_setLeds(0x003f, 0xffff);
+          pca9532_setLeds(0x003f, 0xffff);
         if(x>32 || x<-32)
-                  pca9532_setLeds(0x00ff, 0xffff);
+          pca9532_setLeds(0x00ff, 0xffff);
+
+        if(y>7 || y<-7)
+          pca9532_setLeds(0x0300, 0xffff);
+        if(y>17 || y<-17)
+          pca9532_setLeds(0x0F00, 0xffff);
+        if(y>25 || y<-25)
+          pca9532_setLeds(0x3f00, 0xffff);
+        if(y>32 || y<-32)
+           pca9532_setLeds(0xff00, 0xffff);
 
     if (state != 0)
     {
