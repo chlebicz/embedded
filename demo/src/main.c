@@ -7,7 +7,7 @@
 #include "joystick.h"
 #include "oled.h"
 #include "light.h"
-
+#include "temp.h"
 #include "fatbee.h"
 
 #define LUX_DARK_THRESHOLD   100
@@ -54,9 +54,9 @@ static void delay_us(uint32_t us) {
 
 static void maximize_amplifier_volume(void) {
     // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
-    GPIO_SetValue(0, 1<<28); 
-    
-    // LM4811 ma 16 poziomów głośności. 
+    GPIO_SetValue(0, 1<<28);
+
+    // LM4811 ma 16 poziomów głośności.
     // Wysłanie 16 impulsów gwarantuje osiągnięcie absolutnego maksimum.
     for (int i = 0; i < 16; i++) {
         // Impuls zegara (Wysoki -> Niski)
@@ -105,9 +105,9 @@ static void bee_init(void)
   TIM_ConfigStruct.PrescaleValue = 1;
 
   TIM_MatchConfigStruct.MatchChannel = 0;
-  TIM_MatchConfigStruct.IntOnMatch = ENABLE; 
-  TIM_MatchConfigStruct.ResetOnMatch = ENABLE; 
-  TIM_MatchConfigStruct.StopOnMatch = DISABLE; 
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE;
+  TIM_MatchConfigStruct.ResetOnMatch = ENABLE;
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE;
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
 
   // Czas trwania jednej próbki w mikrosekundach
@@ -123,6 +123,16 @@ static void bee_init(void)
 }
 
 volatile uint8_t ticks = 0;
+
+volatile uint32_t msTicks = 0; // Zegar systemowy dla termometru
+
+void SysTick_Handler(void) {
+    msTicks++;
+}
+
+static uint32_t getTicks(void) {
+    return msTicks;
+}
 
 // 5. The Handler
 void TIMER1_IRQHandler(void) {
@@ -150,19 +160,25 @@ void TIMER2_IRQHandler(void)
     TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
     // Pobierz 8-bitową próbkę (wartość od 0 do 255)
-    uint32_t sample = (uint32_t)fatbee[current_sample_index];
+    int32_t sample = fatbee[current_sample_index];
+    sample = sample - 128;
+    sample *= 2;
+    if (sample > 127) sample=127;
+    if (sample <-128) sample=-128;
 
-    // Zapisz do DAC. 
+    uint32_t final = (uint32_t) (sample + 128);
+
+    // Zapisz do DAC.
     // Przesuwamy w lewo o 2 (<< 2), żeby przekonwertować z 8-bitów na 10-bitów.
     // Dzięki temu DAC zagra na 100% głośności.
-    DAC_UpdateValue(LPC_DAC, sample << 2);
+    DAC_UpdateValue(LPC_DAC, final << 2);
 
     // Przejdź do następnej próbki
     current_sample_index++;
-    
+
     // Jeśli dotarliśmy do końca tablicy, wróć na początek
     if (current_sample_index >= FATBEE_SIZE) {
-      current_sample_index = AUDIO_START_OFFSET; 
+      current_sample_index = AUDIO_START_OFFSET;
     }
   }
 }
@@ -426,11 +442,16 @@ int main(void)
 
   joystick_init();
   oled_init();
+  temp_init(&getTicks);
+  if (SysTick_Config(SystemCoreClock / 1000)) {
+	while (1);  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
+  }
   timer_init();
 
   bee_init();
 
   oled_clearScreen(OLED_COLOR_BLACK);
+  int cnt = 0;
   while (1)
   {
     update_oled_theme_based_on_light();
@@ -450,6 +471,21 @@ int main(void)
 //    uint8_t ticks = LPC_TIM1->TC;
     uint8_t value[] = {ticks + '0', '\0'};
     oled_putString(6, 30, value, oled_fg, oled_bg);
+
+    if (cnt % 100 == 0) {
+		int32_t t_val = temp_read();
+		uint8_t t_int = t_val / 10;
+		uint8_t t_dec = t_val % 10;
+		uint8_t temp_str[] = "Temp: 00.0 C";
+		temp_str[6] = ((t_int / 10) % 10) + '0';
+		temp_str[7] = (t_int % 10) + '0';
+		temp_str[9] = t_dec + '0';
+		if (temp_str[6] == '0') temp_str[6] = ' ';
+		oled_putString(6, 50, temp_str, oled_fg, oled_bg);
+		cnt = 0;
+    }
+    cnt++;
+
 
     Timer0_Wait(1);
   }
