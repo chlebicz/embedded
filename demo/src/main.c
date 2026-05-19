@@ -35,11 +35,11 @@ void timer_reset(void)
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
   TIM_ConfigStruct.PrescaleValue = 1000;
 
-  // Konfiguracja rejestru dopasowania (Match 0) na 5000 ms
+  // Konfiguracja rejestru dopasowania (Match 0) na 1000 ms
   TIM_MatchConfigStruct.MatchChannel = 0;
-  TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 5000
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 1000
   TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
-  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 1 sekundzie (uruchomimy go znowu ręcznie)
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
   TIM_MatchConfigStruct.MatchValue = 1000;
 
@@ -549,6 +549,9 @@ int main(void)
     if (ticks >= 50)
     {
       curr_value = 0;
+      my_set_pwm_value(1, 0);
+      my_set_pwm_value(2, 0);
+      timer_stop();
     }
     else if (ticks >= 30)
     {
