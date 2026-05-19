@@ -1,0 +1,14 @@
+Zespół: A05
+Lider zespołu: Mikołaj Chlebicz 254729
+Reszta członków zespołu: Sebastian Gęca 254761 Bartosz Horna 254764
+Temat: Dźwig
+Checkpoint: po wciśnięciu jednego guzika silnik kreci się w jedna stronę po wciśnięciu drugiego w druga
+Wybrane urządzenie: LPC1769 
+1 czy jest w poziomie
+2 dźwięk jak się rusza
+3 silnik działa w obie strony
+4 status operacji wyświetlany na ekranie
+5 ledy w zależności od wychylenia od poziomu
+6 motyw zależny od naświetlenia
+7 timer sprawdzający czy silnik nie pracuje za długo
+8 termometr sprawdza czy silnik się nie przegrzewa

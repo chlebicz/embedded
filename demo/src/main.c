@@ -2,10 +2,16 @@
 #include "lpc17xx_gpio.h"
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
+#include "lpc17xx_timer.h"
 
 #include "joystick.h"
 #include "oled.h"
 #include "light.h"
+#include "acc.h"
+#include "led7seg.h"
+
+#include "temp.h"
+#include "fatbee.h"
 
 #define LUX_DARK_THRESHOLD   100
 #define LUX_LIGHT_THRESHOLD  150
@@ -16,11 +22,156 @@ static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
 
 static int curr_value = 0;                      // Moc silnika
 
+volatile uint8_t ticks = 0;
+
+void timer_reset(void)
+{
+  ticks = 0;
+
+  TIM_TIMERCFG_Type TIM_ConfigStruct;
+  TIM_MATCHCFG_Type TIM_MatchConfigStruct;
+
+  // Konfiguracja timera na odliczanie w milisekundach (1000 us = 1 ms)
+  TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+  TIM_ConfigStruct.PrescaleValue = 1000;
+
+  // Konfiguracja rejestru dopasowania (Match 0) na 5000 ms
+  TIM_MatchConfigStruct.MatchChannel = 0;
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 5000
+  TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
+  TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
+  TIM_MatchConfigStruct.MatchValue = 1000;
+
+  // Inicjalizacja
+  TIM_Init(LPC_TIM1, TIM_TIMER_MODE, &TIM_ConfigStruct);
+  TIM_ConfigMatch(LPC_TIM1, &TIM_MatchConfigStruct);
+
+  // Włączenie przerwań dla Timera 1 w kontrolerze NVIC
+  NVIC_SetPriority(TIMER1_IRQn, 10);
+  NVIC_EnableIRQ(TIMER1_IRQn);
+}
+
+void timer_stop(void)
+{
+  NVIC_DisableIRQ(TIMER1_IRQn);
+  ticks = 0;
+}
+
+const int SAMPLE_RATE = 8000; // hz
+
+static void bee_init(void)
+{
+  // 1. OBUDŹ WZMACNIACZ LM4811
+  // Ustawienie pinów sterujących wzmacniaczem jako wyjścia
+  GPIO_SetDir(0, 1<<27, 1);
+  GPIO_SetDir(0, 1<<28, 1);
+  GPIO_SetDir(2, 1<<13, 1);
+  GPIO_SetDir(0, 1<<26, 1);
+
+  // Stan niski na pinie 2.13 wyłącza tryb "shutdown" wzmacniacza
+  GPIO_ClearValue(0, 1<<27); // LM4811-clk
+  GPIO_ClearValue(0, 1<<28); // LM4811-up/dn
+  GPIO_ClearValue(2, 1<<13); // LM4811-shutdn
+
+  // 2. SKONFIGURUJ PIN DAC
+  PINSEL_CFG_Type PinCfgDAC;
+  PinCfgDAC.Funcnum = 2;   // Func 2 to AOUT (DAC)
+  PinCfgDAC.OpenDrain = 0;
+  PinCfgDAC.Pinmode = 0;
+  PinCfgDAC.Portnum = 0;
+  PinCfgDAC.Pinnum = 26;
+  PINSEL_ConfigPin(&PinCfgDAC);
+
+  // Inicjalizacja peryferium DAC
+  DAC_Init(LPC_DAC);
+
+  // 3. SKONFIGURUJ TIMER 2
+  TIM_TIMERCFG_Type TIM_ConfigStruct;
+  TIM_MATCHCFG_Type TIM_MatchConfigStruct;
+
+  LPC_SC->PCONP |= (1 << 22); // Zasilanie Timera 2
+
+  TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+  TIM_ConfigStruct.PrescaleValue = 1;
+
+  TIM_MatchConfigStruct.MatchChannel = 0;
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE;
+  TIM_MatchConfigStruct.ResetOnMatch = ENABLE;
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE;
+  TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
+
+  // Czas trwania jednej próbki w mikrosekundach
+  TIM_MatchConfigStruct.MatchValue = 1000000 / SAMPLE_RATE;
+
+  TIM_Init(LPC_TIM2, TIM_TIMER_MODE, &TIM_ConfigStruct);
+  TIM_ConfigMatch(LPC_TIM2, &TIM_MatchConfigStruct);
+
+  NVIC_SetPriority(TIMER2_IRQn, 10);
+  NVIC_EnableIRQ(TIMER2_IRQn);
+
+  TIM_Cmd(LPC_TIM2, ENABLE);
+}
+
+volatile uint32_t msTicks = 0; // Zegar systemowy dla termometru
+
+void SysTick_Handler(void)
+{
+  msTicks++;
+}
+
+static uint32_t getTicks(void)
+{
+  return msTicks;
+}
+
+// 5. The Handler
+void TIMER1_IRQHandler(void)
+{
+  // Check if the interrupt came from Match 0
+  if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET)
+  {
+    ticks++;
+
+    // Clear the interrupt flag so it doesn't loop infinitely
+    TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
+  }
+}
+
+#define FATBEE_SIZE (sizeof(fatbee) / sizeof(fatbee[0]))
+
+#define AUDIO_START_OFFSET 44
+
+volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
+
+void TIMER2_IRQHandler(void)
+{
+  if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
+  {
+    // Wyczyść flagę przerwania
+    TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
+
+    // Pobierz 8-bitową próbkę (wartość od 0 do 255)
+    uint32_t sample = fatbee[current_sample_index];
+
+    DAC_UpdateValue(LPC_DAC, sample << 2);
+
+    // Przejdź do następnej próbki
+    current_sample_index++;
+
+    // Jeśli dotarliśmy do końca tablicy, wróć na początek
+    if (current_sample_index >= FATBEE_SIZE) {
+      current_sample_index = AUDIO_START_OFFSET;
+    }
+  }
+}
+
 static void rotate_motor(uint8_t joyState)
 {
   if ((joyState & JOYSTICK_CENTER) != 0)
   {
     curr_value = 0;
+    TIM_Cmd(LPC_TIM1, ENABLE);
   }
 
   if (curr_value < 500 && curr_value > 0)
@@ -126,7 +277,7 @@ void update_oled_message()
   uint8_t hundreds = ((abs_val(curr_value) / 100) % 10) + '0';
   uint8_t thousands = ((abs_val(curr_value) / 1000) % 10) + '0';
 
-  if (curr_value == 1000)
+  if (curr_value == 1000 || curr_value == -1000)
   {
     thousands = '5';
   }
@@ -266,31 +417,148 @@ static void init_i2c(void)
 int main(void)
 {
   uint8_t state = 0;
+  int8_t xoff = 0;
+  int8_t yoff = 0;
+  int8_t zoff = 0;
+  int8_t x = 0; //(lewo – prawo)
+  int8_t y = 0; //(przód – tył)
+  int8_t z = 0; //(góra – dół)
 
   init_i2c();
   init_ssp();
   init_pwm();
+  acc_init();
   light_enable();
 
   joystick_init();
   oled_init();
+  temp_init(&getTicks);
+  if (SysTick_Config(SystemCoreClock / 1000))
+  {
+    while (1);  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
+  }
+  acc_read(&x, &y, &z);
+
+  xoff = 0 - x;
+  yoff = 0 - y;
+  zoff = 0 - z;
+  bee_init();
 
   oled_clearScreen(OLED_COLOR_BLACK);
+
+  int cnt = 0;
   while (1)
   {
     update_oled_theme_based_on_light();
     state = joystick_read();
+    acc_read(&x, &y, &z);
+    x = x + xoff;
+    y = y + yoff;
+    z = z + zoff;
+
+    uint16_t ledOn = 0xffff;
+    pca9532_setLeds(0x0000, 0xffff);
+
+    if (x > 7 || x < -7)
+      pca9532_setLeds(0x003, 0xffff);
+    if (x > 17 || x < -17)
+      pca9532_setLeds(0x000F, 0xffff);
+    if (x > 25 || x < -25)
+      pca9532_setLeds(0x003f, 0xffff);
+    if (x > 32 || x < -32)
+      pca9532_setLeds(0x00ff, 0xffff);
+
+    if (y > 7 || y < -7)
+      pca9532_setLeds(0xC000, 0xffff);
+    if (y > 17 || y < -17)
+      pca9532_setLeds(0xF000, 0xffff);
+    if (y > 25 || y < -25)
+      pca9532_setLeds(0xFC00, 0xffff);
+    if (y > 32 || y < -32)
+      pca9532_setLeds(0xFF00, 0xffff);
+
+    static int is_achtung = 0;
+
+    if (x > 17 || x < -17 || y > 17 || y < -17)
+    {
+      if (!is_achtung)
+      {
+        uint8_t alert[] = "ACHTUNG";
+        oled_putString(6, 40, alert, oled_fg, oled_bg);
+        is_achtung = 1;
+      }
+    }
+    else
+    {
+      is_achtung = 0;
+      uint8_t reset[] = "       ";
+      oled_putString(6, 40, reset, oled_fg, oled_bg);
+    }
+
     if (state != 0)
     {
       rotate_motor(state);
 
       static int prev_value = 69;
+
+      if (abs_val(curr_value - prev_value) > 100 && curr_value != 0)
+      {
+        timer_reset();
+      }
+
+      if (curr_value == 0)
+      {
+        timer_stop();
+      }
+
       if (prev_value != curr_value)
       {
         update_oled_message();
         prev_value = curr_value;
       }
     }
+
+    uint8_t units = (ticks % 10) + '0';
+    uint8_t tens = ((ticks / 10) % 10) + '0';
+    uint8_t value[] = { tens, units, '\0' };
+
+    oled_putString(6, 30, value, oled_fg, oled_bg);
+
+    if (ticks >= 50)
+    {
+      curr_value = 0;
+    }
+    else if (ticks >= 30)
+    {
+      uint8_t alert[] = "ACHTUNG";
+      oled_putString(6, 40, alert, oled_fg, oled_bg);
+    }
+    else if (ticks == 0)
+    {
+      uint8_t reset[] = "       ";
+      oled_putString(6, 40, reset, oled_fg, oled_bg);
+    }
+
+    if (cnt % 100 == 0)
+    {
+      int32_t t_val = temp_read();
+      uint8_t t_int = t_val / 10;
+      uint8_t t_dec = t_val % 10;
+      uint8_t temp_str[] = "Temp: 00.0 C";
+
+      temp_str[6] = ((t_int / 10) % 10) + '0';
+      temp_str[7] = (t_int % 10) + '0';
+      temp_str[9] = t_dec + '0';
+      if (temp_str[6] == '0')
+      {
+        temp_str[6] = ' ';
+      }
+
+      oled_putString(6, 50, temp_str, oled_fg, oled_bg);
+      cnt = 0;
+    }
+
+    cnt++;
 
     Timer0_Wait(1);
   }
