@@ -28,13 +28,12 @@ static void my_set_pwm_value(int channel, int value);
 
 static oled_color_t oled_bg = OLED_COLOR_BLACK; // Aktualny kolor tła
 static oled_color_t oled_fg = OLED_COLOR_WHITE; // Aktualny kolor tekstu
-static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
 
 static int curr_value = 0;                      // Moc silnika
 
-volatile uint8_t ticks = 0;
+static volatile uint8_t ticks = 0;
 
-void timer_reset(void)
+static void timer_reset(void)
 {
   ticks = 0;
 
@@ -68,8 +67,6 @@ static void timer_stop(void)
   ticks = 0;
 }
 
-static const int SAMPLE_RATE = 8000; // hz
-
 static void delay_us(uint32_t us)
 {
   for (volatile uint32_t i = 0; i < (us * 30); i++) {}
@@ -78,31 +75,32 @@ static void delay_us(uint32_t us)
 static void increase_amplifier_volume(int levels)
 {
   // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
-  GPIO_SetValue(0, 1<<28);
+  GPIO_SetValue(0, 1U<<28U);
 
   for (int i = 0; i < levels; i++)
   {
     // Impuls zegara (Wysoki -> Niski)
-    GPIO_SetValue(0, 1<<27);   // CLK High
+    GPIO_SetValue(0, 1U<<27U);   // CLK High
     delay_us(10);              // Krótka przerwa
-    GPIO_ClearValue(0, 1<<27); // CLK Low
+    GPIO_ClearValue(0, 1U<<27U); // CLK Low
     delay_us(10);              // Krótka przerwa
   }
 }
 
 static void bee_init(void)
 {
+  static const int SAMPLE_RATE = 8000; // hz
   // 1. OBUDŹ WZMACNIACZ LM4811
   // Ustawienie pinów sterujących wzmacniaczem jako wyjścia
-  GPIO_SetDir(0, 1<<27, 1);
-  GPIO_SetDir(0, 1<<28, 1);
-  GPIO_SetDir(2, 1<<13, 1);
-  GPIO_SetDir(0, 1<<26, 1);
+  GPIO_SetDir(0, 1U<<27U, 1);
+  GPIO_SetDir(0, 1U<<28U, 1);
+  GPIO_SetDir(2, 1U<<13U, 1);
+  GPIO_SetDir(0, 1U<<26U, 1);
 
   // Stan niski na pinie 2.13 wyłącza tryb "shutdown" wzmacniacza
-  GPIO_ClearValue(0, 1<<27); // LM4811-clk
-  GPIO_ClearValue(0, 1<<28); // LM4811-up/dn
-  GPIO_ClearValue(2, 1<<13); // LM4811-shutdn
+  GPIO_ClearValue(0, 1U<<27U); // LM4811-clk
+  GPIO_ClearValue(0, 1U<<28U); // LM4811-up/dn
+  GPIO_ClearValue(2, 1U<<13U); // LM4811-shutdn
 
   increase_amplifier_volume(16); // max
 
@@ -122,7 +120,7 @@ static void bee_init(void)
   TIM_TIMERCFG_Type TIM_ConfigStruct;
   TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
-  LPC_SC->PCONP |= (1 << 22); // Zasilanie Timera 2
+  LPC_SC->PCONP |= (1U << 22U); // Zasilanie Timera 2
 
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
   TIM_ConfigStruct.PrescaleValue = 1;
@@ -174,10 +172,10 @@ void TIMER1_IRQHandler(void)
 
 #define AUDIO_START_OFFSET 44
 
-static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
-
 void TIMER2_IRQHandler(void)
 {
+  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
+
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
   {
     // Wyczyść flagę przerwania
@@ -186,7 +184,7 @@ void TIMER2_IRQHandler(void)
     // Pobierz 8-bitową próbkę (wartość od 0 do 255)
     uint32_t sample = fatbee[current_sample_index];
 
-    DAC_UpdateValue(LPC_DAC, sample << 2);
+    DAC_UpdateValue(LPC_DAC, sample << 2U);
 
     // Przejdź do następnej próbki
     current_sample_index++;
@@ -254,6 +252,7 @@ static void rotate_motor(uint8_t joyState)
 
 static void update_oled_theme_based_on_light(void)
 {
+  static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
   uint32_t lux = light_read();
   uint8_t changed = 0;
 
@@ -287,6 +286,70 @@ static int abs_val(int old_val)
   return old_val;
 }
 
+static const int LINE_COUNT = 5;
+static const int LINE_LENGTH = 13;
+
+static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  "            ",
+  "            ",
+  "            ",
+  "            ",
+  "            "
+};
+
+static void oled_buffer_put(uint8_t line, const uint8_t* data) 
+{
+  if (line >= LINE_COUNT || data == NULL) 
+  {
+    return;
+  }
+
+  for (int i = 0; i < LINE_LENGTH; i++) 
+  {
+    if (*data != '\0')
+    {
+      oled_buffer[line][i] = *data;
+      data++;
+    } 
+    else
+    {
+      oled_buffer[line][i] = ' ';
+    }
+  }
+}
+
+static void update_oled_with_buffer(void)
+{
+  static uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  "            ",
+  "            ",
+  "            ",
+  "            ",
+  "            "
+  };
+
+  static const int CHAR_WIDTH = 6;
+  static const int CHAR_HEIGHT = 8;
+
+  for (int line = 0; line < LINE_COUNT; ++line)
+  {
+    for (int i = 0; i < LINE_LENGTH; ++i)
+    {
+      if (oled_buffer[line][i] != prev_oled_buffer[line][i])
+      {
+        oled_putChar(
+          i * (CHAR_WIDTH + 2),
+          line * (CHAR_HEIGHT + 2),
+          oled_buffer[line][i],
+          oled_fg,
+          oled_bg
+        );
+        prev_oled_buffer[line][i] = oled_buffer[line][i];
+      }
+    }
+  }
+}
+
 static void update_oled_message(void)
 {
   const uint8_t* state = (const uint8_t*)"";          // Stoi/Wciaganie/Opuszczanie
@@ -294,20 +357,20 @@ static void update_oled_message(void)
 
   if (curr_value == 0)
   {
-    state = (uint8_t*)"Stoi";
+    state = (const uint8_t*)"Stoi";
   }
   else if (curr_value > 0)
   {
-    state = (uint8_t*)"Wciaganie";
+    state = (const uint8_t*)"Wciaganie";
   }
   else if (curr_value < 0)
   {
-    state = (uint8_t*)"Opuszczanie";
+    state = (const uint8_t*)"Opuszczanie";
   }
 
-  uint8_t tens = ((abs_val(curr_value) / 10) % 10) + '0';
-  uint8_t hundreds = ((abs_val(curr_value) / 100) % 10) + '0';
-  uint8_t thousands = ((abs_val(curr_value) / 1000) % 10) + '0';
+  uint8_t tens = (uint8_t)((abs_val(curr_value) / 10) % 10) + '0';
+  uint8_t hundreds = (uint8_t)((abs_val(curr_value) / 100) % 10) + '0';
+  uint8_t thousands = (uint8_t)((abs_val(curr_value) / 1000) % 10) + '0';
 
   if (curr_value == 1000 || curr_value == -1000)
   {
@@ -320,30 +383,26 @@ static void update_oled_message(void)
   secondLine[2] = tens;
   power = secondLine;
 
-  oled_clearScreen(oled_bg);
-
-  // 96x64 pixel rozdzielczość oled
-
   if (state[0] != '\0')
   {
-    oled_putString(6, 10, state, oled_fg, oled_bg);
+    oled_buffer_put(0, state);
   }
 
   if (power[0] != '\0')
   {
-    oled_putString(6, 20, power, oled_fg, oled_bg);
+    oled_buffer_put(1, power);
   }
 }
 
 static void init_pwm(void)
 {
   LPC_PWM1->MR0 = 1000; // okres pwm
-  LPC_PWM1->LER |= (1 << 0); // zatwierdzenie MR0
+  LPC_PWM1->LER |= (1U << 0U); // zatwierdzenie MR0
   // rejestry MR są 32-bitowe
 
   // bit 0 - wlaczenie glownego licznika i prescalera
   // bit 3 - pwm enable
-  LPC_PWM1->TCR |= (1 << 0) | (1 << 3);
+  LPC_PWM1->TCR |= (1U << 0U) | (1U << 3U);
 
   PINSEL_CFG_Type PinCfg;
   PinCfg.Portnum = 2;
@@ -355,15 +414,15 @@ static void init_pwm(void)
   PinCfg.Pinnum = 0;
   PINSEL_ConfigPin(&PinCfg);
   LPC_PWM1->MR1 = 500; // 50%
-  LPC_PWM1->LER |= (1 << 1); // zatwierdzenie rejestru MR1
-  LPC_PWM1->PCR |= (1 << (9 + 0)); // aktywacja wyjscia sygnalu dla kanalu 2
+  LPC_PWM1->LER |= (1U << 1U); // zatwierdzenie rejestru MR1
+  LPC_PWM1->PCR |= (1U << (9U + 0U)); // aktywacja wyjscia sygnalu dla kanalu 2
 
   // PIO2_3
   PinCfg.Pinnum = 3;
   PINSEL_ConfigPin(&PinCfg);
   LPC_PWM1->MR4 = 500; // 50%
-  LPC_PWM1->LER |= (1 << 4); // zatwierdzenie MR4
-  LPC_PWM1->PCR |= (1 << (9 + 3));
+  LPC_PWM1->LER |= (1U << 4U); // zatwierdzenie MR4
+  LPC_PWM1->PCR |= (1U << (9U + 3U));
 }
 
 static void my_set_pwm_value(int channel, int value)
@@ -371,12 +430,12 @@ static void my_set_pwm_value(int channel, int value)
   if (channel == 1)
   {
     LPC_PWM1->MR1 = value;
-    LPC_PWM1->LER |= (1 << 1);
+    LPC_PWM1->LER |= (1U << 1U);
   }
   else if (channel == 2)
   {
     LPC_PWM1->MR4 = value;
-    LPC_PWM1->LER |= (1 << 4);
+    LPC_PWM1->LER |= (1U << 4U);
   }
 }
 
@@ -385,25 +444,8 @@ static void init_ssp(void)
   SSP_CFG_Type SSP_ConfigStruct;
   PINSEL_CFG_Type PinCfg;
 
-  /*
-   * Initialize SPI(Serial Peripheral Interface) pin connect
-   * P0.7 - SCK (Serial Clock) //sygnał zegarowy generowany przez mastera, synchronizuje przesył danych
-   * P0.8 - MISO (Master Out, Slave In)
-   * P0.9 - MOSI (Master In, Slave Out)
-   * P2.2 - SSEL - used as GPIO (General-Purpose Input/Output) aktywuje wybrane urządzenie slave do komunikacji
-   *
-   * Jak działa komunikacja SPI?
-   *
-   * Master wybiera urządzenie slave, ustawiając jego linię CS w state niski.
-   * Generuje sygnał zegarowy na linii SCK.
-   * Na każdą zmianę stateu zegara master wysyła bit na MOSI, a slave może równocześnie przesłać bit na MISO.
-   * Po zakończeniu transmisji master ustawia CS(u nas P2.2) w state wysoki, dezaktywując slave’a.
-   */
-
-  //Funcnum = 2 to druga alternatywna funkcja pinu
   PinCfg.Funcnum = 2;
   PinCfg.OpenDrain = 0;
-  //jak nie ma sygnału to jest state wysoki
   PinCfg.Pinmode = 0;
   PinCfg.Portnum = 0;
   PinCfg.Pinnum = 7;
@@ -467,7 +509,10 @@ int main(void)
   temp_init(&getTicks);
   if (SysTick_Config(SystemCoreClock / 1000))
   {
-    while (1);  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
+    while (1)
+    {
+
+    };  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
   }
   acc_read(&x, &y, &z);
 
@@ -492,39 +537,60 @@ int main(void)
     pca9532_setLeds(0x0000, 0xffff);
 
     if (x > 7 || x < -7)
+    {
       pca9532_setLeds(0x003, 0xffff);
+    }
     if (x > 17 || x < -17)
+    {
       pca9532_setLeds(0x000F, 0xffff);
+    }
     if (x > 25 || x < -25)
+    {
       pca9532_setLeds(0x003f, 0xffff);
+    }
     if (x > 32 || x < -32)
+    {
       pca9532_setLeds(0x00ff, 0xffff);
+    }
 
     if (y > 7 || y < -7)
+    {
       pca9532_setLeds(0xC000, 0xffff);
+    }
     if (y > 17 || y < -17)
+    {
       pca9532_setLeds(0xF000, 0xffff);
+    }
     if (y > 25 || y < -25)
+    {
       pca9532_setLeds(0xFC00, 0xffff);
+    }
     if (y > 32 || y < -32)
+    {
       pca9532_setLeds(0xFF00, 0xffff);
+    }
 
     static int is_achtung = 0;
+    
+    const uint8_t alert[] = "ACHTUNG";
+    const uint8_t reset[] = "";
 
+    // Line 3 (Y=40) mapped for warnings 
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
       if (!is_achtung)
       {
-        uint8_t alert[] = "ACHTUNG";
-        oled_putString(6, 40, alert, oled_fg, oled_bg);
+        oled_buffer_put(3, alert);
         is_achtung = 1;
       }
     }
     else
     {
-      is_achtung = 0;
-      uint8_t reset[] = "       ";
-      oled_putString(6, 40, reset, oled_fg, oled_bg);
+      if (is_achtung) 
+      {
+        is_achtung = 0;
+        oled_buffer_put(3, reset);
+      }
     }
 
     if (state != 0)
@@ -549,12 +615,14 @@ int main(void)
         prev_value = curr_value;
       }
     }
+    //*C
 
     uint8_t units = (ticks % 10) + '0';
     uint8_t tens = ((ticks / 10) % 10) + '0';
     uint8_t value[] = { tens, units, '\0' };
-
-    oled_putString(6, 30, value, oled_fg, oled_bg);
+    
+    // Line 2 (Y=30) mapped for timer
+    oled_buffer_put(2, value);
 
     if (ticks >= 50)
     {
@@ -565,13 +633,11 @@ int main(void)
     }
     else if (ticks >= 30)
     {
-      uint8_t alert[] = "ACHTUNG";
-      oled_putString(6, 40, alert, oled_fg, oled_bg);
+      oled_buffer_put(3, alert); // Uses Line 3 
     }
-    else if (ticks == 0)
+    else if (ticks == 0 && !is_achtung) 
     {
-      uint8_t reset[] = "       ";
-      oled_putString(6, 40, reset, oled_fg, oled_bg);
+      oled_buffer_put(3, reset);
     }
 
     if (cnt % 100 == 0)
@@ -588,22 +654,25 @@ int main(void)
       {
         temp_str[6] = ' ';
       }
-
-      oled_putString(6, 50, temp_str, oled_fg, oled_bg);
+      
+      // Line 4 (Y=50) mapped for temperature
+      oled_buffer_put(4, temp_str); 
       cnt = 0;
     }
 
-    cnt++;
+    // Flush to screen only when lines actually changed
+    update_oled_with_buffer();
 
+    cnt++;
     Timer0_Wait(1);
   }
 }
 
 void check_failed(uint8_t *file, uint32_t line)
 {
-  /* User can add his own implementation to report the file name and line number,
-   ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-
-  /* Infinite loop */
-  while(1);
+  (void)file;
+  (void)line;
+  while(1)
+  {
+  }
 }
