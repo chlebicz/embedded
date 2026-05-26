@@ -27,8 +27,6 @@ static enum Theme prev_theme = DARK;
 
 static int curr_value = 0;                      // Moc silnika
 
-uint16_t volume = 0;
-
 static void init_adc(void)
 {
 	PINSEL_CFG_Type PinCfg;
@@ -97,6 +95,21 @@ static void delay_us(uint32_t us)
   for (volatile uint32_t i = 0; i < (us * 30); i++) {}
 }
 
+static void decrease_amplifier_volume(int levels)
+{
+  // Ustaw pin kierunku głośności (UP/DN) na NISKI (0 = Ściszanie)
+  GPIO_ClearValue(0, 1<<28);
+
+  for (int i = 0; i < levels; i++)
+  {
+    // Impuls zegara (Wysoki -> Niski)
+    GPIO_SetValue(0, 1<<27);   // CLK High
+    delay_us(10);              // Krótka przerwa
+    GPIO_ClearValue(0, 1<<27); // CLK Low
+    delay_us(10);              // Krótka przerwa
+  }
+}
+
 static void increase_amplifier_volume(int levels)
 {
   // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
@@ -109,6 +122,29 @@ static void increase_amplifier_volume(int levels)
     delay_us(10);              // Krótka przerwa
     GPIO_ClearValue(0, 1<<27); // CLK Low
     delay_us(10);              // Krótka przerwa
+  }
+}
+
+static uint8_t curr_volume = 16;
+static uint8_t prev_volume = 16;
+
+static void update_volume(void)
+{
+  ADC_StartCmd(LPC_ADC, ADC_START_NOW);
+  // Wait for the conversion to complete
+  while (!(ADC_ChannelGetStatus(LPC_ADC, ADC_CHANNEL_0, ADC_DATA_DONE)));
+  uint16_t adc_value = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
+
+  curr_volume = adc_value >> 8; // / 256
+  if (curr_volume > prev_volume)
+  {
+    increase_amplifier_volume(curr_volume - prev_volume);
+    prev_volume = curr_volume;
+  }
+  else if (curr_volume < prev_volume)
+  {
+    decrease_amplifier_volume(prev_volume - curr_volume);
+    prev_volume = curr_volume;
   }
 }
 
@@ -211,7 +247,7 @@ void TIMER2_IRQHandler(void)
         // Skalowanie głośności:
         // volume: 0..4096
         // sample DAC: 10-bit (0..1023)
-        uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
+        uint32_t dac_value = sample << 2U;
 
         // Wyślij do DAC
         DAC_UpdateValue(LPC_DAC, dac_value);
@@ -682,11 +718,7 @@ int main(void)
     // Flush to screen only when lines actually changed
     update_oled_with_buffer();
 
-	ADC_StartCmd(LPC_ADC,ADC_START_NOW);
-	//Wait conversion complete
-	while (!(ADC_ChannelGetStatus(LPC_ADC,ADC_CHANNEL_0,ADC_DATA_DONE)));
-	volume = ADC_ChannelGetData(LPC_ADC,ADC_CHANNEL_0); // 0 to 4096
-
+    update_volume();
 
     cnt++;
     Timer0_Wait(1);
