@@ -1,5 +1,6 @@
 #include "lpc17xx_pinsel.h"
 #include "lpc17xx_gpio.h"
+#include "lpc17xx_adc.h"
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
@@ -26,10 +27,42 @@ void check_failed(uint8_t *file, uint32_t line);
 static void update_oled_message(void);
 static void my_set_pwm_value(int channel, int value);
 
-static oled_color_t oled_bg = OLED_COLOR_BLACK; // Aktualny kolor tła
-static oled_color_t oled_fg = OLED_COLOR_WHITE; // Aktualny kolor tekstu
+enum Theme
+{
+  DARK,
+  LIGHT
+};
+static enum Theme curr_theme = DARK;
+static enum Theme prev_theme = DARK;
 
 static int curr_value = 0;                      // Moc silnika
+
+uint16_t volume = 0;
+
+static void init_adc(void)
+{
+	PINSEL_CFG_Type PinCfg;
+
+	/*
+	 * Init ADC pin connect
+	 * AD0.0 on P0.23
+	 */
+	PinCfg.Funcnum = 1;
+	PinCfg.OpenDrain = 0;
+	PinCfg.Pinmode = 0;
+	PinCfg.Pinnum = 23;
+	PinCfg.Portnum = 0;
+	PINSEL_ConfigPin(&PinCfg);
+
+	/* Configuration for ADC :
+	 * 	Frequency at 0.2Mhz
+	 *  ADC channel 0, no Interrupt
+	 */
+	ADC_Init(LPC_ADC, 200000);
+	ADC_IntConfig(LPC_ADC,ADC_CHANNEL_0,DISABLE);
+	ADC_ChannelCmd(LPC_ADC,ADC_CHANNEL_0,ENABLE);
+
+}
 
 static volatile uint8_t ticks = 0;
 
@@ -174,26 +207,33 @@ void TIMER1_IRQHandler(void)
 
 void TIMER2_IRQHandler(void)
 {
-  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
+  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;  
 
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
-  {
-    // Wyczyść flagę przerwania
-    TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
+    {
+        // Wyczyść flagę przerwania
+        TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
-    // Pobierz 8-bitową próbkę (wartość od 0 do 255)
-    uint32_t sample = fatbee[current_sample_index];
+        // Pobierz 8-bitową próbkę (0..255)
+        uint32_t sample = fatbee[current_sample_index];
 
-    DAC_UpdateValue(LPC_DAC, sample << 2U);
+        // Skalowanie głośności:
+        // volume: 0..4096
+        // sample DAC: 10-bit (0..1023)
+        uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
 
-    // Przejdź do następnej próbki
-    current_sample_index++;
+        // Wyślij do DAC
+        DAC_UpdateValue(LPC_DAC, dac_value);
 
-    // Jeśli dotarliśmy do końca tablicy, wróć na początek
-    if (current_sample_index >= FATBEE_SIZE) {
-      current_sample_index = AUDIO_START_OFFSET;
+        // Następna próbka
+        current_sample_index++;
+
+        // Zapętlenie audio
+        if (current_sample_index >= FATBEE_SIZE)
+        {
+            current_sample_index = AUDIO_START_OFFSET;
+        }
     }
-  }
 }
 
 static void rotate_motor(uint8_t joyState)
@@ -254,26 +294,14 @@ static void update_oled_theme_based_on_light(void)
 {
   static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
   uint32_t lux = light_read();
-  uint8_t changed = 0;
 
-  if (lux > LUX_LIGHT_THRESHOLD && current_theme == 0)
+  if (lux > LUX_LIGHT_THRESHOLD)
   {
-    oled_bg = OLED_COLOR_WHITE;
-    oled_fg = OLED_COLOR_BLACK;
-    current_theme = 1;
-    changed = 1;
+    curr_theme = LIGHT;
   }
-  else if (lux < LUX_DARK_THRESHOLD && current_theme == 1)
+  else if (lux < LUX_DARK_THRESHOLD)
   {
-    oled_bg = OLED_COLOR_BLACK;
-    oled_fg = OLED_COLOR_WHITE;
-    current_theme = 0;
-    changed = 1;
-  }
-
-  if (changed)
-  {
-    update_oled_message();
+    curr_theme = DARK;
   }
 }
 
@@ -286,8 +314,10 @@ static int abs_val(int old_val)
   return old_val;
 }
 
-static const int LINE_COUNT = 5;
-static const int LINE_LENGTH = 13;
+#define LINE_COUNT 5
+#define LINE_LENGTH 12
+
+uint8_t first_draw = TRUE;
 
 static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            ",
@@ -297,20 +327,28 @@ static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            "
 };
 
-static void oled_buffer_put(uint8_t line, const uint8_t* data) 
+uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  "            ",
+  "            ",
+  "            ",
+  "            ",
+  "            "
+};
+
+void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
-  if (line >= LINE_COUNT || data == NULL) 
+  if (line >= LINE_COUNT || data == NULL)
   {
     return;
   }
 
-  for (int i = 0; i < LINE_LENGTH; i++) 
+  for (int i = 0; i < LINE_LENGTH; i++)
   {
     if (*data != '\0')
     {
       oled_buffer[line][i] = *data;
       data++;
-    } 
+    }
     else
     {
       oled_buffer[line][i] = ' ';
@@ -318,24 +356,33 @@ static void oled_buffer_put(uint8_t line, const uint8_t* data)
   }
 }
 
-static void update_oled_with_buffer(void)
-{
-  static uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
-  "            ",
-  "            ",
-  "            ",
-  "            ",
-  "            "
-  };
+#define CHAR_WIDTH 6
+#define CHAR_HEIGHT 8
 
-  static const int CHAR_WIDTH = 6;
-  static const int CHAR_HEIGHT = 8;
+void update_oled_with_buffer(void)
+{
+  oled_color_t oled_fg, oled_bg;
+  if (curr_theme == LIGHT)
+  {
+    oled_bg = OLED_COLOR_WHITE;
+    oled_fg = OLED_COLOR_BLACK;
+  }
+  else
+  {
+    oled_bg = OLED_COLOR_BLACK;
+    oled_fg = OLED_COLOR_WHITE;
+  }
+
+  if (curr_theme != prev_theme || first_draw)
+  {
+    oled_clearScreen(oled_bg);
+  }
 
   for (int line = 0; line < LINE_COUNT; ++line)
   {
     for (int i = 0; i < LINE_LENGTH; ++i)
     {
-      if (oled_buffer[line][i] != prev_oled_buffer[line][i])
+      if (oled_buffer[line][i] != prev_oled_buffer[line][i] || curr_theme != prev_theme || first_draw)
       {
         oled_putChar(
           i * (CHAR_WIDTH + 2),
@@ -348,6 +395,9 @@ static void update_oled_with_buffer(void)
       }
     }
   }
+
+  prev_theme = curr_theme;
+  first_draw = FALSE;
 }
 
 static void update_oled_message(void)
@@ -500,6 +550,7 @@ int main(void)
 
   init_i2c();
   init_ssp();
+  init_adc();
   init_pwm();
   acc_init();
   light_enable();
@@ -520,8 +571,6 @@ int main(void)
   yoff = 0 - y;
   zoff = 0 - z;
   bee_init();
-
-  oled_clearScreen(OLED_COLOR_BLACK);
 
   int cnt = 0;
   while (1)
@@ -575,7 +624,7 @@ int main(void)
     const uint8_t alert[] = "ACHTUNG";
     const uint8_t reset[] = "";
 
-    // Line 3 (Y=40) mapped for warnings 
+    // Line 3 (Y=40) mapped for warnings
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
       if (!is_achtung)
@@ -586,7 +635,7 @@ int main(void)
     }
     else
     {
-      if (is_achtung) 
+      if (is_achtung)
       {
         is_achtung = 0;
         oled_buffer_put(3, reset);
@@ -620,7 +669,7 @@ int main(void)
     uint8_t units = (ticks % 10) + '0';
     uint8_t tens = ((ticks / 10) % 10) + '0';
     uint8_t value[] = { tens, units, '\0' };
-    
+
     // Line 2 (Y=30) mapped for timer
     oled_buffer_put(2, value);
 
@@ -633,9 +682,9 @@ int main(void)
     }
     else if (ticks >= 30)
     {
-      oled_buffer_put(3, alert); // Uses Line 3 
+      oled_buffer_put(3, alert); // Uses Line 3
     }
-    else if (ticks == 0 && !is_achtung) 
+    else if (ticks == 0 && !is_achtung)
     {
       oled_buffer_put(3, reset);
     }
@@ -654,14 +703,20 @@ int main(void)
       {
         temp_str[6] = ' ';
       }
-      
+
       // Line 4 (Y=50) mapped for temperature
-      oled_buffer_put(4, temp_str); 
+      oled_buffer_put(4, temp_str);
       cnt = 0;
     }
 
     // Flush to screen only when lines actually changed
     update_oled_with_buffer();
+
+	ADC_StartCmd(LPC_ADC,ADC_START_NOW);
+	//Wait conversion complete
+	while (!(ADC_ChannelGetStatus(LPC_ADC,ADC_CHANNEL_0,ADC_DATA_DONE)));
+	volume = ADC_ChannelGetData(LPC_ADC,ADC_CHANNEL_0); // 0 to 4096
+
 
     cnt++;
     Timer0_Wait(1);
