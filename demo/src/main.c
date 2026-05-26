@@ -33,11 +33,10 @@ enum Theme
   LIGHT
 };
 static enum Theme curr_theme = DARK;
-static enum Theme prev_theme = DARK;
 
 static int curr_value = 0;                      // Moc silnika
 
-uint16_t volume = 0;
+static uint16_t volume = 0;
 
 static void init_adc(void)
 {
@@ -317,8 +316,6 @@ static int abs_val(int old_val)
 #define LINE_COUNT 5
 #define LINE_LENGTH 12
 
-uint8_t first_draw = TRUE;
-
 static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            ",
   "            ",
@@ -327,15 +324,7 @@ static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            "
 };
 
-uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
-  "            ",
-  "            ",
-  "            ",
-  "            ",
-  "            "
-};
-
-void oled_buffer_put(uint8_t line, const uint8_t* data)
+static void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
   if (line >= LINE_COUNT || data == NULL)
   {
@@ -359,8 +348,19 @@ void oled_buffer_put(uint8_t line, const uint8_t* data)
 #define CHAR_WIDTH 6
 #define CHAR_HEIGHT 8
 
-void update_oled_with_buffer(void)
+static void update_oled_with_buffer(void)
 {
+  static enum Theme prev_theme = DARK;
+  static uint8_t first_draw = TRUE;
+
+  static uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  "            ",
+  "            ",
+  "            ",
+  "            ",
+  "            "
+ };
+
   oled_color_t oled_fg, oled_bg;
   if (curr_theme == LIGHT)
   {
@@ -402,20 +402,23 @@ void update_oled_with_buffer(void)
 
 static void update_oled_message(void)
 {
-  const uint8_t* state = (const uint8_t*)"";          // Stoi/Wciaganie/Opuszczanie
-  const uint8_t* power = (const uint8_t*)"";          // wartosc mocy
+  //const uint8_t* state = (const uint8_t*)"";          // Stoi/Wciaganie/Opuszczanie
+  //const uint8_t* power = (const uint8_t*)"";          // wartosc mocy
+
+  const char* state = "";          // Stoi/Wciaganie/Opuszczanie
+  const char* power = "";          // wartosc mocy
 
   if (curr_value == 0)
   {
-    state = (const uint8_t*)"Stoi";
+    state = "Stoi";
   }
   else if (curr_value > 0)
   {
-    state = (const uint8_t*)"Wciaganie";
+    state = "Wciaganie";
   }
   else if (curr_value < 0)
   {
-    state = (const uint8_t*)"Opuszczanie";
+    state = "Opuszczanie";
   }
 
   uint8_t tens = (uint8_t)((abs_val(curr_value) / 10) % 10) + '0';
@@ -427,7 +430,7 @@ static void update_oled_message(void)
     thousands = '5';
   }
 
-  uint8_t secondLine[] = "100% mocy";
+  char secondLine[] = "100% mocy";
   secondLine[0] = thousands;
   secondLine[1] = hundreds;
   secondLine[2] = tens;
@@ -435,12 +438,12 @@ static void update_oled_message(void)
 
   if (state[0] != '\0')
   {
-    oled_buffer_put(0, state);
+    oled_buffer_put(0, (const uint8_t*)state);
   }
 
   if (power[0] != '\0')
   {
-    oled_buffer_put(1, power);
+    oled_buffer_put(1, (const uint8_t*)power);
   }
 }
 
@@ -567,9 +570,9 @@ int main(void)
   }
   acc_read(&x, &y, &z);
 
-  xoff = 0 - x;
-  yoff = 0 - y;
-  zoff = 0 - z;
+  xoff = - x;
+  yoff = - y;
+  zoff = - z;
   bee_init();
 
   int cnt = 0;
@@ -621,15 +624,15 @@ int main(void)
 
     static int is_achtung = 0;
     
-    const uint8_t alert[] = "ACHTUNG";
-    const uint8_t reset[] = "";
+    const char alert[] = "ACHTUNG";
+    const char reset[] = "";
 
     // Line 3 (Y=40) mapped for warnings
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
       if (!is_achtung)
       {
-        oled_buffer_put(3, alert);
+        oled_buffer_put(3, (const uint8_t*)alert);
         is_achtung = 1;
       }
     }
@@ -638,7 +641,7 @@ int main(void)
       if (is_achtung)
       {
         is_achtung = 0;
-        oled_buffer_put(3, reset);
+        oled_buffer_put(3, (const uint8_t*)reset);
       }
     }
 
@@ -664,7 +667,6 @@ int main(void)
         prev_value = curr_value;
       }
     }
-    //*C
 
     uint8_t units = (ticks % 10) + '0';
     uint8_t tens = ((ticks / 10) % 10) + '0';
@@ -694,7 +696,7 @@ int main(void)
       int32_t t_val = temp_read();
       uint8_t t_int = t_val / 10;
       uint8_t t_dec = t_val % 10;
-      uint8_t temp_str[] = "Temp: 00.0 C";
+      char temp_str[] = "Temp: 00.0C";
 
       temp_str[6] = ((t_int / 10) % 10) + '0';
       temp_str[7] = (t_int % 10) + '0';
@@ -705,7 +707,7 @@ int main(void)
       }
 
       // Line 4 (Y=50) mapped for temperature
-      oled_buffer_put(4, temp_str);
+      oled_buffer_put(4, (const uint8_t*)temp_str);
       cnt = 0;
     }
 
