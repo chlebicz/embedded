@@ -16,9 +16,13 @@
 #define LUX_DARK_THRESHOLD   100
 #define LUX_LIGHT_THRESHOLD  150
 
-static oled_color_t oled_bg = OLED_COLOR_BLACK; // Aktualny kolor tła
-static oled_color_t oled_fg = OLED_COLOR_WHITE; // Aktualny kolor tekstu
-static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
+enum Theme
+{
+  DARK,
+  LIGHT
+};
+static enum Theme curr_theme = DARK;
+static enum Theme prev_theme = DARK;
 
 static int curr_value = 0;                      // Moc silnika
 
@@ -245,26 +249,14 @@ static void rotate_motor(uint8_t joyState)
 void update_oled_theme_based_on_light(void)
 {
   uint32_t lux = light_read();
-  uint8_t changed = 0;
 
-  if (lux > LUX_LIGHT_THRESHOLD && current_theme == 0)
+  if (lux > LUX_LIGHT_THRESHOLD)
   {
-    oled_bg = OLED_COLOR_WHITE;
-    oled_fg = OLED_COLOR_BLACK;
-    current_theme = 1;
-    changed = 1;
+    curr_theme = LIGHT;
   }
-  else if (lux < LUX_DARK_THRESHOLD && current_theme == 1)
+  else if (lux < LUX_DARK_THRESHOLD)
   {
-    oled_bg = OLED_COLOR_BLACK;
-    oled_fg = OLED_COLOR_WHITE;
-    current_theme = 0;
-    changed = 1;
-  }
-
-  if (changed)
-  {
-    update_oled_message();
+    curr_theme = DARK;
   }
 }
 
@@ -277,8 +269,8 @@ static int abs_val(int old_val)
   return old_val;
 }
 
-const int LINE_COUNT = 5;
-const int LINE_LENGTH = 13;
+#define LINE_COUNT 5
+#define LINE_LENGTH 13
 
 uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            ",
@@ -317,16 +309,33 @@ void oled_buffer_put(uint8_t line, const uint8_t* data)
   }
 }
 
-const int CHAR_WIDTH = 6;
-const int CHAR_HEIGHT = 8;
+#define CHAR_WIDTH 6
+#define CHAR_HEIGHT 8
 
 void update_oled_with_buffer(void)
 {
+  oled_color_t oled_fg, oled_bg;
+  if (curr_theme == LIGHT)
+  {
+    oled_bg = OLED_COLOR_WHITE;
+    oled_fg = OLED_COLOR_BLACK;
+  }
+  else
+  {
+    oled_bg = OLED_COLOR_BLACK;
+    oled_fg = OLED_COLOR_WHITE;
+  }
+
+  if (curr_theme != prev_theme)
+  {
+    oled_clearScreen(oled_bg);
+  }
+
   for (int line = 0; line < LINE_COUNT; ++line)
   {
     for (int i = 0; i < LINE_LENGTH; ++i)
     {
-      if (oled_buffer[line][i] != prev_oled_buffer[line][i])
+      if (oled_buffer[line][i] != prev_oled_buffer[line][i] || curr_theme != prev_theme)
       {
         oled_putChar(
           i * (CHAR_WIDTH + 2),
@@ -339,6 +348,8 @@ void update_oled_with_buffer(void)
       }
     }
   }
+
+  prev_theme = curr_theme;
 }
 
 void update_oled_message()
