@@ -10,9 +10,6 @@
 #include "acc.h"
 #include "led7seg.h"
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 #include "temp.h"
 #include "fatbee.h"
 
@@ -35,67 +32,62 @@ static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
 
 static int curr_value = 0;                      // Moc silnika
 
-//ze starego
-//volatile uint8_t ticks = 0;
-//
-//void timer_reset(void)
-//{
-//	ticks = 0;
-//
+volatile uint8_t ticks = 0;
 
-static void timer_init(void)
+void timer_reset(void)
 {
-	TIM_TIMERCFG_Type TIM_ConfigStruct;
-	TIM_MATCHCFG_Type TIM_MatchConfigStruct;
+  ticks = 0;
 
-	// Konfiguracja timera na odliczanie w milisekundach (1000 us = 1 ms)
-	TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
-	TIM_ConfigStruct.PrescaleValue = 1000;
+  TIM_TIMERCFG_Type TIM_ConfigStruct;
+  TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
-	// Konfiguracja rejestru dopasowania (Match 0) na 5000 ms
-	TIM_MatchConfigStruct.MatchChannel = 0;
-	TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 5000
-	TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
-	TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 5 sekundach (uruchomimy go znowu ręcznie)
-	TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
-	TIM_MatchConfigStruct.MatchValue = 5000;
+  // Konfiguracja timera na odliczanie w milisekundach (1000 us = 1 ms)
+  TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+  TIM_ConfigStruct.PrescaleValue = 1000;
 
-	// Inicjalizacja
-	TIM_Init(LPC_TIM1, TIM_TIMER_MODE, &TIM_ConfigStruct);
-	TIM_ConfigMatch(LPC_TIM1, &TIM_MatchConfigStruct);
+  // Konfiguracja rejestru dopasowania (Match 0) na 1000 ms
+  TIM_MatchConfigStruct.MatchChannel = 0;
+  TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 1000
+  TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 1 sekundzie (uruchomimy go znowu ręcznie)
+  TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
+  TIM_MatchConfigStruct.MatchValue = 1000;
 
-	// Włączenie przerwań dla Timera 1 w kontrolerze NVIC
-	NVIC_SetPriority(TIMER1_IRQn, 10);
-	NVIC_EnableIRQ(TIMER1_IRQn);
+  // Inicjalizacja
+  TIM_Init(LPC_TIM1, TIM_TIMER_MODE, &TIM_ConfigStruct);
+  TIM_ConfigMatch(LPC_TIM1, &TIM_MatchConfigStruct);
+
+  // Włączenie przerwań dla Timera 1 w kontrolerze NVIC
+  NVIC_SetPriority(TIMER1_IRQn, 10);
+  NVIC_EnableIRQ(TIMER1_IRQn);
 }
 
-//ze starego
-static void timer_stop(void) {
-	NVIC_DisableIRQ(TIMER1_IRQn);
-	ticks = 0;
+static void timer_stop(void)
+{
+  NVIC_DisableIRQ(TIMER1_IRQn);
+  ticks = 0;
 }
-// do tad
 
 static const int SAMPLE_RATE = 8000; // hz
 
-// Krótki delay dla sygnału zegarowego wzmacniacza
-static void delay_us(uint32_t us) {
-    for (volatile uint32_t i = 0; i < (us * 30); i++) {} // Przybliżone opóźnienie
+static void delay_us(uint32_t us)
+{
+  for (volatile uint32_t i = 0; i < (us * 30); i++) {}
 }
 
-static void maximize_amplifier_volume(void) {
-    // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
-    GPIO_SetValue(0, 1<<28);
+static void increase_amplifier_volume(int levels)
+{
+  // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
+  GPIO_SetValue(0, 1<<28);
 
-    // LM4811 ma 16 poziomów głośności.
-    // Wysłanie 16 impulsów gwarantuje osiągnięcie absolutnego maksimum.
-    for (int i = 0; i < 16; i++) {
-        // Impuls zegara (Wysoki -> Niski)
-        GPIO_SetValue(0, 1<<27);   // CLK High
-        delay_us(10);              // Krótka przerwa
-        GPIO_ClearValue(0, 1<<27); // CLK Low
-        delay_us(10);              // Krótka przerwa
-    }
+  for (int i = 0; i < levels; i++)
+  {
+    // Impuls zegara (Wysoki -> Niski)
+    GPIO_SetValue(0, 1<<27);   // CLK High
+    delay_us(10);              // Krótka przerwa
+    GPIO_ClearValue(0, 1<<27); // CLK Low
+    delay_us(10);              // Krótka przerwa
+  }
 }
 
 static void bee_init(void)
@@ -112,7 +104,7 @@ static void bee_init(void)
   GPIO_ClearValue(0, 1<<28); // LM4811-up/dn
   GPIO_ClearValue(2, 1<<13); // LM4811-shutdn
 
-  maximize_amplifier_volume();
+  increase_amplifier_volume(16); // max
 
   // 2. SKONFIGURUJ PIN DAC
   PINSEL_CFG_Type PinCfgDAC;
@@ -153,30 +145,31 @@ static void bee_init(void)
   TIM_Cmd(LPC_TIM2, ENABLE);
 }
 
-static volatile uint8_t ticks = 0;
-
 static volatile uint32_t msTicks = 0; // Zegar systemowy dla termometru
 
-void SysTick_Handler(void) {
-    msTicks++;
+void SysTick_Handler(void)
+{
+  msTicks++;
 }
 
-static uint32_t getTicks(void) {
-    return msTicks;
+static uint32_t getTicks(void)
+{
+  return msTicks;
 }
 
 // 5. The Handler
-void TIMER1_IRQHandler(void) {
+void TIMER1_IRQHandler(void)
+{
   // Check if the interrupt came from Match 0
-  if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET) {
+  if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET)
+  {
     ticks++;
 
-      // Clear the interrupt flag so it doesn't loop infinitely
-      TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
+    // Clear the interrupt flag so it doesn't loop infinitely
+    TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
   }
 }
 
-// Obliczamy dokładny rozmiar tablicy automatycznie
 #define FATBEE_SIZE (sizeof(fatbee) / sizeof(fatbee[0]))
 
 #define AUDIO_START_OFFSET 44
@@ -191,18 +184,9 @@ void TIMER2_IRQHandler(void)
     TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
     // Pobierz 8-bitową próbkę (wartość od 0 do 255)
-    int32_t sample = fatbee[current_sample_index];
-    sample = sample - 128;
-    sample *= 2;
-    if (sample > 127) sample=127;
-    if (sample <-128) sample=-128;
+    uint32_t sample = fatbee[current_sample_index];
 
-    uint32_t final = (uint32_t) (sample + 128);
-
-    // Zapisz do DAC.
-    // Przesuwamy w lewo o 2 (<< 2), żeby przekonwertować z 8-bitów na 10-bitów.
-    // Dzięki temu DAC zagra na 100% głośności.
-    DAC_UpdateValue(LPC_DAC, final << 2);
+    DAC_UpdateValue(LPC_DAC, sample << 2);
 
     // Przejdź do następnej próbki
     current_sample_index++;
@@ -462,10 +446,6 @@ static void init_i2c(void)
   I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
-static int8_t accReadToDeg(int8_t value){
-  return asin(value/64.0) * (180.0/M_PI);
-}
-
 int main(void)
 {
   uint8_t state = 0;
@@ -485,48 +465,67 @@ int main(void)
   joystick_init();
   oled_init();
   temp_init(&getTicks);
-  if (SysTick_Config(SystemCoreClock / 1000)) {
-	while (1);  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
+  if (SysTick_Config(SystemCoreClock / 1000))
+  {
+    while (1);  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
   }
-  timer_init();
   acc_read(&x, &y, &z);
 
-    xoff = 0-x;
-    yoff = 0-y;
-    zoff = 0-z;
+  xoff = 0 - x;
+  yoff = 0 - y;
+  zoff = 0 - z;
   bee_init();
 
   oled_clearScreen(OLED_COLOR_BLACK);
+
   int cnt = 0;
   while (1)
   {
     update_oled_theme_based_on_light();
     state = joystick_read();
     acc_read(&x, &y, &z);
-    x = x+xoff;
-    y = y+yoff;
-    z = z+zoff;
+    x = x + xoff;
+    y = y + yoff;
+    z = z + zoff;
 
     uint16_t ledOn = 0xffff;
-        pca9532_setLeds(0x0000, 0xffff);
+    pca9532_setLeds(0x0000, 0xffff);
 
-        if(x>7 || x<-7)
-          pca9532_setLeds(0x003, 0xffff);
-        if(x>17 || x<-17)
-          pca9532_setLeds(0x000F, 0xffff);
-        if(x>25 || x<-25)
-          pca9532_setLeds(0x003f, 0xffff);
-        if(x>32 || x<-32)
-          pca9532_setLeds(0x00ff, 0xffff);
+    if (x > 7 || x < -7)
+      pca9532_setLeds(0x003, 0xffff);
+    if (x > 17 || x < -17)
+      pca9532_setLeds(0x000F, 0xffff);
+    if (x > 25 || x < -25)
+      pca9532_setLeds(0x003f, 0xffff);
+    if (x > 32 || x < -32)
+      pca9532_setLeds(0x00ff, 0xffff);
 
-        if(y>7 || y<-7)
-          pca9532_setLeds(0x0300, 0xffff);
-        if(y>17 || y<-17)
-          pca9532_setLeds(0x0F00, 0xffff);
-        if(y>25 || y<-25)
-          pca9532_setLeds(0x3f00, 0xffff);
-        if(y>32 || y<-32)
-           pca9532_setLeds(0xff00, 0xffff);
+    if (y > 7 || y < -7)
+      pca9532_setLeds(0xC000, 0xffff);
+    if (y > 17 || y < -17)
+      pca9532_setLeds(0xF000, 0xffff);
+    if (y > 25 || y < -25)
+      pca9532_setLeds(0xFC00, 0xffff);
+    if (y > 32 || y < -32)
+      pca9532_setLeds(0xFF00, 0xffff);
+
+    static int is_achtung = 0;
+
+    if (x > 17 || x < -17 || y > 17 || y < -17)
+    {
+      if (!is_achtung)
+      {
+        uint8_t alert[] = "ACHTUNG";
+        oled_putString(6, 40, alert, oled_fg, oled_bg);
+        is_achtung = 1;
+      }
+    }
+    else
+    {
+      is_achtung = 0;
+      uint8_t reset[] = "       ";
+      oled_putString(6, 40, reset, oled_fg, oled_bg);
+    }
 
     if (state != 0)
     {
@@ -534,12 +533,14 @@ int main(void)
 
       static int prev_value = 69;
 
-      if (abs_val(curr_value - prev_value) > 100 && curr_value != 0) {
-    	  timer_reset();
+      if (abs_val(curr_value - prev_value) > 100 && curr_value != 0)
+      {
+        timer_reset();
       }
 
-      if (curr_value == 0) {
-    	  timer_stop();
+      if (curr_value == 0)
+      {
+        timer_stop();
       }
 
       if (prev_value != curr_value)
@@ -549,39 +550,50 @@ int main(void)
       }
     }
 
-//    uint8_t ticks = LPC_TIM1->TC;
-    //stare
-    //uint8_t units = (ticks % 10) + '0';
-    //uint8_t tens = ((ticks / 10) % 10) + '0';
-    //uint8_t value[] = "00";
-    //value[0] = tens;
-    //value[1] = units;
+    uint8_t units = (ticks % 10) + '0';
+    uint8_t tens = ((ticks / 10) % 10) + '0';
+    uint8_t value[] = { tens, units, '\0' };
 
-    uint8_t value[] = {ticks + '0', '\0'};
     oled_putString(6, 30, value, oled_fg, oled_bg);
-    //ze starego
-    if (ticks >= 30) {
-    	uint8_t alert[] = "ACHTUNG";
-    	oled_putString(6, 40, alert, oled_fg, oled_bg);
-    }
-    if (ticks == 0) {
-    	oled_putString(6, 40, "\0", oled_fg, oled_bg);
-    }
-    //do tad
-    if (cnt % 100 == 0) {
-		int32_t t_val = temp_read();
-		uint8_t t_int = t_val / 10;
-		uint8_t t_dec = t_val % 10;
-		uint8_t temp_str[] = "Temp: 00.0 C";
-		temp_str[6] = ((t_int / 10) % 10) + '0';
-		temp_str[7] = (t_int % 10) + '0';
-		temp_str[9] = t_dec + '0';
-		if (temp_str[6] == '0') temp_str[6] = ' ';
-		oled_putString(6, 50, temp_str, oled_fg, oled_bg);
-		cnt = 0;
-    }
-    cnt++;
 
+    if (ticks >= 50)
+    {
+      curr_value = 0;
+      my_set_pwm_value(1, 0);
+      my_set_pwm_value(2, 0);
+      timer_stop();
+    }
+    else if (ticks >= 30)
+    {
+      uint8_t alert[] = "ACHTUNG";
+      oled_putString(6, 40, alert, oled_fg, oled_bg);
+    }
+    else if (ticks == 0)
+    {
+      uint8_t reset[] = "       ";
+      oled_putString(6, 40, reset, oled_fg, oled_bg);
+    }
+
+    if (cnt % 100 == 0)
+    {
+      int32_t t_val = temp_read();
+      uint8_t t_int = t_val / 10;
+      uint8_t t_dec = t_val % 10;
+      uint8_t temp_str[] = "Temp: 00.0 C";
+
+      temp_str[6] = ((t_int / 10) % 10) + '0';
+      temp_str[7] = (t_int % 10) + '0';
+      temp_str[9] = t_dec + '0';
+      if (temp_str[6] == '0')
+      {
+        temp_str[6] = ' ';
+      }
+
+      oled_putString(6, 50, temp_str, oled_fg, oled_bg);
+      cnt = 0;
+    }
+
+    cnt++;
 
     Timer0_Wait(1);
   }
@@ -595,4 +607,3 @@ void check_failed(uint8_t *file, uint32_t line)
   /* Infinite loop */
   while(1);
 }
-
