@@ -270,7 +270,9 @@ static int abs_val(int old_val)
 }
 
 #define LINE_COUNT 5
-#define LINE_LENGTH 13
+#define LINE_LENGTH 12
+
+uint8_t first_draw = TRUE;
 
 uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            ",
@@ -326,7 +328,7 @@ void update_oled_with_buffer(void)
     oled_fg = OLED_COLOR_WHITE;
   }
 
-  if (curr_theme != prev_theme)
+  if (curr_theme != prev_theme || first_draw)
   {
     oled_clearScreen(oled_bg);
   }
@@ -335,7 +337,7 @@ void update_oled_with_buffer(void)
   {
     for (int i = 0; i < LINE_LENGTH; ++i)
     {
-      if (oled_buffer[line][i] != prev_oled_buffer[line][i] || curr_theme != prev_theme)
+      if (oled_buffer[line][i] != prev_oled_buffer[line][i] || curr_theme != prev_theme || first_draw)
       {
         oled_putChar(
           i * (CHAR_WIDTH + 2),
@@ -350,6 +352,7 @@ void update_oled_with_buffer(void)
   }
 
   prev_theme = curr_theme;
+  first_draw = FALSE;
 }
 
 void update_oled_message()
@@ -519,8 +522,6 @@ int main(void)
   yoff = 0 - y;
   zoff = 0 - z;
   bee_init();
-
-  oled_clearScreen(OLED_COLOR_BLACK);
 
   int cnt = 0;
   while (1)
