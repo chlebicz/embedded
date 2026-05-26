@@ -19,6 +19,16 @@
 #define LUX_DARK_THRESHOLD   100
 #define LUX_LIGHT_THRESHOLD  150
 
+/* Forward declarations to satisfy MISRA-C:2012 Rule 8.4 */
+void SysTick_Handler(void);
+void TIMER1_IRQHandler(void);
+void TIMER2_IRQHandler(void);
+void check_failed(uint8_t *file, uint32_t line);
+
+/* Forward declarations for static functions used before definition */
+static void update_oled_message(void);
+static void my_set_pwm_value(int channel, int value);
+
 static oled_color_t oled_bg = OLED_COLOR_BLACK; // Aktualny kolor tła
 static oled_color_t oled_fg = OLED_COLOR_WHITE; // Aktualny kolor tekstu
 static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
@@ -60,13 +70,13 @@ static void timer_init(void)
 }
 
 //ze starego
-void timer_stop(void) {
+static void timer_stop(void) {
 	NVIC_DisableIRQ(TIMER1_IRQn);
 	ticks = 0;
 }
 // do tad
 
-const int SAMPLE_RATE = 8000; // hz
+static const int SAMPLE_RATE = 8000; // hz
 
 // Krótki delay dla sygnału zegarowego wzmacniacza
 static void delay_us(uint32_t us) {
@@ -143,9 +153,9 @@ static void bee_init(void)
   TIM_Cmd(LPC_TIM2, ENABLE);
 }
 
-volatile uint8_t ticks = 0;
+static volatile uint8_t ticks = 0;
 
-volatile uint32_t msTicks = 0; // Zegar systemowy dla termometru
+static volatile uint32_t msTicks = 0; // Zegar systemowy dla termometru
 
 void SysTick_Handler(void) {
     msTicks++;
@@ -171,7 +181,7 @@ void TIMER1_IRQHandler(void) {
 
 #define AUDIO_START_OFFSET 44
 
-volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
+static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
 
 void TIMER2_IRQHandler(void)
 {
@@ -258,7 +268,7 @@ static void rotate_motor(uint8_t joyState)
   }
 }
 
-void update_oled_theme_based_on_light(void)
+static void update_oled_theme_based_on_light(void)
 {
   uint32_t lux = light_read();
   uint8_t changed = 0;
@@ -293,10 +303,10 @@ static int abs_val(int old_val)
   return old_val;
 }
 
-void update_oled_message()
+static void update_oled_message(void)
 {
-  uint8_t* state = (uint8_t*)"";           // Stoi/Wciaganie/Opuszczanie
-  uint8_t* power = (uint8_t*)"";           // wartosc mocy
+  const uint8_t* state = (const uint8_t*)"";          // Stoi/Wciaganie/Opuszczanie
+  const uint8_t* power = (const uint8_t*)"";          // wartosc mocy
 
   if (curr_value == 0)
   {
@@ -372,7 +382,7 @@ static void init_pwm(void)
   LPC_PWM1->PCR |= (1 << (9 + 3));
 }
 
-void my_set_pwm_value(int channel, int value)
+static void my_set_pwm_value(int channel, int value)
 {
   if (channel == 1)
   {
@@ -494,8 +504,8 @@ int main(void)
     state = joystick_read();
     acc_read(&x, &y, &z);
     x = x+xoff;
-    y = y+xoff;
-    z = z+xoff;
+    y = y+yoff;
+    z = z+zoff;
 
     uint16_t ledOn = 0xffff;
         pca9532_setLeds(0x0000, 0xffff);
