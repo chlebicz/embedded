@@ -1,5 +1,6 @@
 #include "lpc17xx_pinsel.h"
 #include "lpc17xx_gpio.h"
+#include "lpc17xx_adc.h"
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
@@ -25,6 +26,33 @@ static enum Theme curr_theme = DARK;
 static enum Theme prev_theme = DARK;
 
 static int curr_value = 0;                      // Moc silnika
+
+uint16_t volume = 0;
+
+static void init_adc(void)
+{
+	PINSEL_CFG_Type PinCfg;
+
+	/*
+	 * Init ADC pin connect
+	 * AD0.0 on P0.23
+	 */
+	PinCfg.Funcnum = 1;
+	PinCfg.OpenDrain = 0;
+	PinCfg.Pinmode = 0;
+	PinCfg.Pinnum = 23;
+	PinCfg.Portnum = 0;
+	PINSEL_ConfigPin(&PinCfg);
+
+	/* Configuration for ADC :
+	 * 	Frequency at 0.2Mhz
+	 *  ADC channel 0, no Interrupt
+	 */
+	ADC_Init(LPC_ADC, 200000);
+	ADC_IntConfig(LPC_ADC,ADC_CHANNEL_0,DISABLE);
+	ADC_ChannelCmd(LPC_ADC,ADC_CHANNEL_0,ENABLE);
+
+}
 
 volatile uint8_t ticks = 0;
 
@@ -172,24 +200,31 @@ volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
 
 void TIMER2_IRQHandler(void)
 {
-  if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
-  {
-    // Wyczyść flagę przerwania
-    TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
+    if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
+    {
+        // Wyczyść flagę przerwania
+        TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
-    // Pobierz 8-bitową próbkę (wartość od 0 do 255)
-    uint32_t sample = fatbee[current_sample_index];
+        // Pobierz 8-bitową próbkę (0..255)
+        uint32_t sample = fatbee[current_sample_index];
 
-    DAC_UpdateValue(LPC_DAC, sample << 2);
+        // Skalowanie głośności:
+        // volume: 0..4096
+        // sample DAC: 10-bit (0..1023)
+        uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
 
-    // Przejdź do następnej próbki
-    current_sample_index++;
+        // Wyślij do DAC
+        DAC_UpdateValue(LPC_DAC, dac_value);
 
-    // Jeśli dotarliśmy do końca tablicy, wróć na początek
-    if (current_sample_index >= FATBEE_SIZE) {
-      current_sample_index = AUDIO_START_OFFSET;
+        // Następna próbka
+        current_sample_index++;
+
+        // Zapętlenie audio
+        if (current_sample_index >= FATBEE_SIZE)
+        {
+            current_sample_index = AUDIO_START_OFFSET;
+        }
     }
-  }
 }
 
 static void rotate_motor(uint8_t joyState)
@@ -290,20 +325,20 @@ uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
   "            "
 };
 
-void oled_buffer_put(uint8_t line, const uint8_t* data) 
+void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
-  if (line >= LINE_COUNT || data == NULL) 
+  if (line >= LINE_COUNT || data == NULL)
   {
     return;
   }
 
-  for (int i = 0; i < LINE_LENGTH; i++) 
+  for (int i = 0; i < LINE_LENGTH; i++)
   {
     if (*data != '\0')
     {
       oled_buffer[line][i] = *data;
       data++;
-    } 
+    }
     else
     {
       oled_buffer[line][i] = ' ';
@@ -505,6 +540,7 @@ int main(void)
 
   init_i2c();
   init_ssp();
+  init_adc();
   init_pwm();
   acc_init();
   light_enable();
@@ -555,11 +591,11 @@ int main(void)
       pca9532_setLeds(0xFF00, 0xffff);
 
     static int is_achtung = 0;
-    
+
     uint8_t alert[] = "ACHTUNG";
     uint8_t reset[] = "";
 
-    // Line 3 (Y=40) mapped for warnings 
+    // Line 3 (Y=40) mapped for warnings
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
       if (!is_achtung)
@@ -570,7 +606,7 @@ int main(void)
     }
     else
     {
-      if (is_achtung) 
+      if (is_achtung)
       {
         is_achtung = 0;
         oled_buffer_put(3, reset);
@@ -603,7 +639,7 @@ int main(void)
     uint8_t units = (ticks % 10) + '0';
     uint8_t tens = ((ticks / 10) % 10) + '0';
     uint8_t value[] = { tens, units, '\0' };
-    
+
     // Line 2 (Y=30) mapped for timer
     oled_buffer_put(2, value);
 
@@ -616,9 +652,9 @@ int main(void)
     }
     else if (ticks >= 30)
     {
-      oled_buffer_put(3, alert); // Uses Line 3 
+      oled_buffer_put(3, alert); // Uses Line 3
     }
-    else if (ticks == 0 && !is_achtung) 
+    else if (ticks == 0 && !is_achtung)
     {
       oled_buffer_put(3, reset);
     }
@@ -637,14 +673,20 @@ int main(void)
       {
         temp_str[6] = ' ';
       }
-      
+
       // Line 4 (Y=50) mapped for temperature
-      oled_buffer_put(4, temp_str); 
+      oled_buffer_put(4, temp_str);
       cnt = 0;
     }
 
     // Flush to screen only when lines actually changed
     update_oled_with_buffer();
+
+	ADC_StartCmd(LPC_ADC,ADC_START_NOW);
+	//Wait conversion complete
+	while (!(ADC_ChannelGetStatus(LPC_ADC,ADC_CHANNEL_0,ADC_DATA_DONE)));
+	volume = ADC_ChannelGetData(LPC_ADC,ADC_CHANNEL_0); // 0 to 4096
+
 
     cnt++;
     Timer0_Wait(1);
