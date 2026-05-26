@@ -277,6 +277,70 @@ static int abs_val(int old_val)
   return old_val;
 }
 
+const int LINE_COUNT = 5;
+const int LINE_LENGTH = 13;
+
+uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  "            ",
+  "            ",
+  "            ",
+  "            ",
+  "            "
+};
+
+uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  "            ",
+  "            ",
+  "            ",
+  "            ",
+  "            "
+};
+
+void oled_buffer_put(uint8_t line, const uint8_t* data) 
+{
+  if (line >= LINE_COUNT || data == NULL) 
+  {
+    return;
+  }
+
+  for (int i = 0; i < LINE_LENGTH; i++) 
+  {
+    if (*data != '\0')
+    {
+      oled_buffer[line][i] = *data;
+      data++;
+    } 
+    else
+    {
+      oled_buffer[line][i] = ' ';
+    }
+  }
+}
+
+const int CHAR_WIDTH = 6;
+const int CHAR_HEIGHT = 8;
+
+void update_oled_with_buffer(void)
+{
+  for (int line = 0; line < LINE_COUNT; ++line)
+  {
+    for (int i = 0; i < LINE_LENGTH; ++i)
+    {
+      if (oled_buffer[line][i] != prev_oled_buffer[line][i])
+      {
+        oled_putChar(
+          i * (CHAR_WIDTH + 2),
+          line * (CHAR_HEIGHT + 2),
+          oled_buffer[line][i],
+          oled_fg,
+          oled_bg
+        );
+        prev_oled_buffer[line][i] = oled_buffer[line][i];
+      }
+    }
+  }
+}
+
 void update_oled_message()
 {
   uint8_t* state = (uint8_t*)"";           // Stoi/Wciaganie/Opuszczanie
@@ -310,18 +374,14 @@ void update_oled_message()
   secondLine[2] = tens;
   power = secondLine;
 
-  oled_clearScreen(oled_bg);
-
-  // 96x64 pixel rozdzielczość oled
-
   if (state[0] != '\0')
   {
-    oled_putString(6, 10, state, oled_fg, oled_bg);
+    oled_buffer_put(0, state);
   }
 
   if (power[0] != '\0')
   {
-    oled_putString(6, 20, power, oled_fg, oled_bg);
+    oled_buffer_put(1, power);
   }
 }
 
@@ -375,25 +435,8 @@ static void init_ssp(void)
   SSP_CFG_Type SSP_ConfigStruct;
   PINSEL_CFG_Type PinCfg;
 
-  /*
-   * Initialize SPI(Serial Peripheral Interface) pin connect
-   * P0.7 - SCK (Serial Clock) //sygnał zegarowy generowany przez mastera, synchronizuje przesył danych
-   * P0.8 - MISO (Master Out, Slave In)
-   * P0.9 - MOSI (Master In, Slave Out)
-   * P2.2 - SSEL - used as GPIO (General-Purpose Input/Output) aktywuje wybrane urządzenie slave do komunikacji
-   *
-   * Jak działa komunikacja SPI?
-   *
-   * Master wybiera urządzenie slave, ustawiając jego linię CS w state niski.
-   * Generuje sygnał zegarowy na linii SCK.
-   * Na każdą zmianę stateu zegara master wysyła bit na MOSI, a slave może równocześnie przesłać bit na MISO.
-   * Po zakończeniu transmisji master ustawia CS(u nas P2.2) w state wysoki, dezaktywując slave’a.
-   */
-
-  //Funcnum = 2 to druga alternatywna funkcja pinu
   PinCfg.Funcnum = 2;
   PinCfg.OpenDrain = 0;
-  //jak nie ma sygnału to jest state wysoki
   PinCfg.Pinmode = 0;
   PinCfg.Portnum = 0;
   PinCfg.Pinnum = 7;
@@ -500,21 +543,26 @@ int main(void)
       pca9532_setLeds(0xFF00, 0xffff);
 
     static int is_achtung = 0;
+    
+    uint8_t alert[] = "ACHTUNG";
+    uint8_t reset[] = "";
 
+    // Line 3 (Y=40) mapped for warnings 
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
       if (!is_achtung)
       {
-        uint8_t alert[] = "ACHTUNG";
-        oled_putString(6, 40, alert, oled_fg, oled_bg);
+        oled_buffer_put(3, alert);
         is_achtung = 1;
       }
     }
     else
     {
-      is_achtung = 0;
-      uint8_t reset[] = "       ";
-      oled_putString(6, 40, reset, oled_fg, oled_bg);
+      if (is_achtung) 
+      {
+        is_achtung = 0;
+        oled_buffer_put(3, reset);
+      }
     }
 
     if (state != 0)
@@ -543,8 +591,9 @@ int main(void)
     uint8_t units = (ticks % 10) + '0';
     uint8_t tens = ((ticks / 10) % 10) + '0';
     uint8_t value[] = { tens, units, '\0' };
-
-    oled_putString(6, 30, value, oled_fg, oled_bg);
+    
+    // Line 2 (Y=30) mapped for timer
+    oled_buffer_put(2, value);
 
     if (ticks >= 50)
     {
@@ -555,13 +604,11 @@ int main(void)
     }
     else if (ticks >= 30)
     {
-      uint8_t alert[] = "ACHTUNG";
-      oled_putString(6, 40, alert, oled_fg, oled_bg);
+      oled_buffer_put(3, alert); // Uses Line 3 
     }
-    else if (ticks == 0)
+    else if (ticks == 0 && !is_achtung) 
     {
-      uint8_t reset[] = "       ";
-      oled_putString(6, 40, reset, oled_fg, oled_bg);
+      oled_buffer_put(3, reset);
     }
 
     if (cnt % 100 == 0)
@@ -578,22 +625,21 @@ int main(void)
       {
         temp_str[6] = ' ';
       }
-
-      oled_putString(6, 50, temp_str, oled_fg, oled_bg);
+      
+      // Line 4 (Y=50) mapped for temperature
+      oled_buffer_put(4, temp_str); 
       cnt = 0;
     }
 
-    cnt++;
+    // Flush to screen only when lines actually changed
+    update_oled_with_buffer();
 
+    cnt++;
     Timer0_Wait(1);
   }
 }
 
 void check_failed(uint8_t *file, uint32_t line)
 {
-  /* User can add his own implementation to report the file name and line number,
-   ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-
-  /* Infinite loop */
   while(1);
 }
