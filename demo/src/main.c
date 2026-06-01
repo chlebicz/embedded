@@ -575,6 +575,9 @@ int main(void)
   bee_init();
 
   int cnt = 0;
+  int is_tilt_warn = 0;
+  int is_time_warn = 0;
+  int is_temp_warn = 0;
   while (1)
   {
     update_oled_theme_based_on_light();
@@ -620,28 +623,20 @@ int main(void)
     {
       pca9532_setLeds(0xFF00, 0xffff);
     }
-
-    static int is_achtung = 0;
     
-    const char alert[] = "ACHTUNG";
-    const char reset[] = "";
+    const uint8_t tilt_alert[] = "PRZECHYL!";
+    const uint8_t time_alert[] = "CZAS!";
+    const uint8_t temp_alert[] = "TEMP!";
+    const uint8_t reset[] = "";
 
     // Line 3 (Y=40) mapped for warnings
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
-      if (!is_achtung)
-      {
-        oled_buffer_put(3, (const uint8_t*)alert);
-        is_achtung = 1;
-      }
+      is_tilt_warn = 1;
     }
     else
     {
-      if (is_achtung)
-      {
-        is_achtung = 0;
-        oled_buffer_put(3, (const uint8_t*)reset);
-      }
+      is_tilt_warn = 0;
     }
 
     if (state != 0)
@@ -683,11 +678,11 @@ int main(void)
     }
     else if (ticks >= 30)
     {
-      oled_buffer_put(3, alert); // Uses Line 3
+      is_time_warn = 1;
     }
-    else if (ticks == 0 && !is_achtung)
+    else if (ticks == 0) 
     {
-      oled_buffer_put(3, reset);
+      is_time_warn = 0;
     }
 
     if (cnt % 100 == 0)
@@ -696,6 +691,15 @@ int main(void)
       uint8_t t_int = t_val / 10;
       uint8_t t_dec = t_val % 10;
       char temp_str[] = "Temp: 00.0C";
+
+      if (t_int >= 30)
+      {
+        is_temp_warn = 1;
+      }
+      else
+      {
+        is_temp_warn = 0;
+      }
 
       temp_str[6] = ((t_int / 10) % 10) + '0';
       temp_str[7] = (t_int % 10) + '0';
@@ -708,6 +712,25 @@ int main(void)
       // Line 4 (Y=50) mapped for temperature
       oled_buffer_put(4, (const uint8_t*)temp_str);
       cnt = 0;
+    }
+
+
+    
+    if (is_tilt_warn) 
+    {
+      oled_buffer_put(3, tilt_alert);
+    } 
+    else if (is_time_warn) 
+    {
+      oled_buffer_put(3, time_alert);
+    } 
+    else if (is_temp_warn)
+    {
+      oled_buffer_put(3, temp_alert);
+    } 
+    else 
+    {
+      oled_buffer_put(3, reset);
     }
 
     // Flush to screen only when lines actually changed
