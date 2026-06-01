@@ -9,7 +9,6 @@
 #include "oled.h"
 #include "light.h"
 #include "acc.h"
-#include "led7seg.h"
 
 #include "temp.h"
 #include "fatbee.h"
