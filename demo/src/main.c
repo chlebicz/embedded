@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #include "lpc17xx_pinsel.h"
 #include "lpc17xx_gpio.h"
 #include "lpc17xx_adc.h"
@@ -39,26 +41,26 @@ static uint16_t volume = 0;
 
 static void init_adc(void)
 {
-	PINSEL_CFG_Type PinCfg;
+  PINSEL_CFG_Type PinCfg;
 
-	/*
-	 * Init ADC pin connect
-	 * AD0.0 on P0.23
-	 */
-	PinCfg.Funcnum = 1;
-	PinCfg.OpenDrain = 0;
-	PinCfg.Pinmode = 0;
-	PinCfg.Pinnum = 23;
-	PinCfg.Portnum = 0;
-	PINSEL_ConfigPin(&PinCfg);
+  /*
+   * Init ADC pin connect
+   * AD0.0 on P0.23
+   */
+  PinCfg.Funcnum = 1;
+  PinCfg.OpenDrain = 0;
+  PinCfg.Pinmode = 0;
+  PinCfg.Pinnum = 23;
+  PinCfg.Portnum = 0;
+  PINSEL_ConfigPin(&PinCfg);
 
-	/* Configuration for ADC :
-	 * 	Frequency at 0.2Mhz
-	 *  ADC channel 0, no Interrupt
-	 */
-	ADC_Init(LPC_ADC, 200000);
-	ADC_IntConfig(LPC_ADC,ADC_CHANNEL_0,DISABLE);
-	ADC_ChannelCmd(LPC_ADC,ADC_CHANNEL_0,ENABLE);
+  /* Configuration for ADC :
+   * 	Frequency at 0.2Mhz
+   *  ADC channel 0, no Interrupt
+   */
+  ADC_Init(LPC_ADC, 200000);
+  ADC_IntConfig(LPC_ADC,ADC_CHANNEL_0,DISABLE);
+  ADC_ChannelCmd(LPC_ADC,ADC_CHANNEL_0,ENABLE);
 
 }
 
@@ -111,10 +113,10 @@ static void increase_amplifier_volume(int levels)
   for (int i = 0; i < levels; i++)
   {
     // Impuls zegara (Wysoki -> Niski)
-    GPIO_SetValue(0, 1U<<27U);   // CLK High
-    delay_us(10);              // Krótka przerwa
-    GPIO_ClearValue(0, 1U<<27U); // CLK Low
-    delay_us(10);              // Krótka przerwa
+    GPIO_SetValue(0, 1U<<27U);    // CLK High
+    delay_us(10);                 // Krótka przerwa
+    GPIO_ClearValue(0, 1U<<27U);  // CLK Low
+    delay_us(10);                 // Krótka przerwa
   }
 }
 
@@ -303,15 +305,6 @@ static void update_oled_theme_based_on_light(void)
   }
 }
 
-static int abs_val(int old_val)
-{
-  if (old_val < 0)
-  {
-    return -old_val;
-  }
-  return old_val;
-}
-
 #define LINE_COUNT 5
 #define LINE_LENGTH 12
 
@@ -420,9 +413,9 @@ static void update_oled_message(void)
     state = "Opuszczanie";
   }
 
-  uint8_t tens = (uint8_t)((abs_val(curr_value) / 10) % 10) + '0';
-  uint8_t hundreds = (uint8_t)((abs_val(curr_value) / 100) % 10) + '0';
-  uint8_t thousands = (uint8_t)((abs_val(curr_value) / 1000) % 10) + '0';
+  uint8_t tens = (uint8_t)((abs(curr_value) / 10) % 10) + '0';
+  uint8_t hundreds = (uint8_t)((abs(curr_value) / 100) % 10) + '0';
+  uint8_t thousands = (uint8_t)((abs(curr_value) / 1000) % 10) + '0';
 
   if (curr_value == 1000 || curr_value == -1000)
   {
@@ -540,15 +533,62 @@ static void init_i2c(void)
   I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
+void update_volume(void)
+{
+  ADC_StartCmd(LPC_ADC, ADC_START_NOW);
+  // Wait conversion complete
+  while (!(ADC_ChannelGetStatus(LPC_ADC, ADC_CHANNEL_0, ADC_DATA_DONE)));
+  volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
+}
+
+void update_leds(int8_t x, int8_t y)
+{
+  pca9532_setLeds(0x0000, 0xffff);
+
+  if (x > 7 || x < -7)
+  {
+    pca9532_setLeds(0x003, 0xffff);
+  }
+  if (x > 17 || x < -17)
+  {
+    pca9532_setLeds(0x000F, 0xffff);
+  }
+  if (x > 25 || x < -25)
+  {
+    pca9532_setLeds(0x003f, 0xffff);
+  }
+  if (x > 32 || x < -32)
+  {
+    pca9532_setLeds(0x00ff, 0xffff);
+  }
+
+  if (y > 7 || y < -7)
+  {
+    pca9532_setLeds(0xC000, 0xffff);
+  }
+  if (y > 17 || y < -17)
+  {
+    pca9532_setLeds(0xF000, 0xffff);
+  }
+  if (y > 25 || y < -25)
+  {
+    pca9532_setLeds(0xFC00, 0xffff);
+  }
+  if (y > 32 || y < -32)
+  {
+    pca9532_setLeds(0xFF00, 0xffff);
+  }
+}
+
 int main(void)
 {
   uint8_t state = 0;
   int8_t xoff = 0;
   int8_t yoff = 0;
   int8_t zoff = 0;
-  int8_t x = 0; //(lewo – prawo)
-  int8_t y = 0; //(przód – tył)
-  int8_t z = 0; //(góra – dół)
+  int8_t x = 0; // (lewo – prawo)
+  int8_t y = 0; // (przód – tył)
+  int8_t z = 0; // (góra – dół)
 
   init_i2c();
   init_ssp();
@@ -587,49 +627,13 @@ int main(void)
     y = y + yoff;
     z = z + zoff;
 
-    uint16_t ledOn = 0xffff;
-    pca9532_setLeds(0x0000, 0xffff);
-
-    if (x > 7 || x < -7)
-    {
-      pca9532_setLeds(0x003, 0xffff);
-    }
-    if (x > 17 || x < -17)
-    {
-      pca9532_setLeds(0x000F, 0xffff);
-    }
-    if (x > 25 || x < -25)
-    {
-      pca9532_setLeds(0x003f, 0xffff);
-    }
-    if (x > 32 || x < -32)
-    {
-      pca9532_setLeds(0x00ff, 0xffff);
-    }
-
-    if (y > 7 || y < -7)
-    {
-      pca9532_setLeds(0xC000, 0xffff);
-    }
-    if (y > 17 || y < -17)
-    {
-      pca9532_setLeds(0xF000, 0xffff);
-    }
-    if (y > 25 || y < -25)
-    {
-      pca9532_setLeds(0xFC00, 0xffff);
-    }
-    if (y > 32 || y < -32)
-    {
-      pca9532_setLeds(0xFF00, 0xffff);
-    }
+    update_leds(x, y);
     
     const uint8_t tilt_alert[] = "PRZECHYL!";
     const uint8_t time_alert[] = "CZAS!";
     const uint8_t temp_alert[] = "TEMP!";
     const uint8_t reset[] = "";
 
-    // Line 3 (Y=40) mapped for warnings
     if (x > 17 || x < -17 || y > 17 || y < -17)
     {
       is_tilt_warn = 1;
@@ -645,7 +649,7 @@ int main(void)
 
       static int prev_value = 69;
 
-      if (abs_val(curr_value - prev_value) > 100 && curr_value != 0)
+      if (abs(curr_value - prev_value) > 100 && curr_value != 0)
       {
         timer_reset();
       }
@@ -714,8 +718,6 @@ int main(void)
       cnt = 0;
     }
 
-
-    
     if (is_tilt_warn) 
     {
       oled_buffer_put(3, tilt_alert);
@@ -736,11 +738,7 @@ int main(void)
     // Flush to screen only when lines actually changed
     update_oled_with_buffer();
 
-	ADC_StartCmd(LPC_ADC,ADC_START_NOW);
-	//Wait conversion complete
-	while (!(ADC_ChannelGetStatus(LPC_ADC,ADC_CHANNEL_0,ADC_DATA_DONE)));
-	volume = ADC_ChannelGetData(LPC_ADC,ADC_CHANNEL_0); // 0 to 4096
-
+    update_volume();
 
     cnt++;
     Timer0_Wait(1);
@@ -751,6 +749,7 @@ void check_failed(uint8_t *file, uint32_t line)
 {
   (void)file;
   (void)line;
+
   while(1)
   {
   }
