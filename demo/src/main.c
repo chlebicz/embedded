@@ -422,7 +422,7 @@ static void update_oled_message(void)
     thousands = '5';
   }
 
-  char secondLine[] = "100% mocy";
+  char secondLine[] = { '1', '0', '0', '%', ' ', 'm', 'o', 'c', 'y', '\0' };
   secondLine[0] = thousands;
   secondLine[1] = hundreds;
   secondLine[2] = tens;
@@ -533,7 +533,7 @@ static void init_i2c(void)
   I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
-void update_volume(void)
+static void update_volume(void)
 {
   ADC_StartCmd(LPC_ADC, ADC_START_NOW);
   // Wait conversion complete
@@ -541,7 +541,7 @@ void update_volume(void)
   volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
 }
 
-void update_leds(int8_t x, int8_t y)
+static void update_leds(int8_t x, int8_t y)
 {
   pca9532_setLeds(0x0000, 0xffff);
 
@@ -694,7 +694,7 @@ int main(void)
       int32_t t_val = temp_read();
       uint8_t t_int = t_val / 10;
       uint8_t t_dec = t_val % 10;
-      char temp_str[] = "Temp: 00.0C";
+      char temp_str[] = { 'T', 'e', 'm', 'p', ':', ' ', '0', '0', '.', '0', 'C', '\0' };
 
       if (t_int >= 30)
       {
