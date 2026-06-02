@@ -564,41 +564,43 @@ static void update_volume(void)
 
 static void update_leds(int8_t x, int8_t y)
 {
-  pca9532_setLeds(0x0000, 0xffff);
+  uint16_t led_mask = 0x0000;
 
-  if (x > 7 || x < -7)
-  {
-    pca9532_setLeds(0x003, 0xffff);
-  }
-  if (x > 17 || x < -17)
-  {
-    pca9532_setLeds(0x000F, 0xffff);
-  }
-  if (x > 25 || x < -25)
-  {
-    pca9532_setLeds(0x003f, 0xffff);
-  }
   if (x > 32 || x < -32)
   {
-    pca9532_setLeds(0x00ff, 0xffff);
+    led_mask |= 0x00FF;
+  }
+  else if (x > 25 || x < -25)
+  {
+    led_mask |= 0x003F;
+  }
+  else if (x > 17 || x < -17)
+  {
+    led_mask |= 0x000F;
+  }
+  else if (x > 7 || x < -7)
+  {
+    led_mask |= 0x0003;
   }
 
-  if (y > 7 || y < -7)
-  {
-    pca9532_setLeds(0xC000, 0xffff);
-  }
-  if (y > 17 || y < -17)
-  {
-    pca9532_setLeds(0xF000, 0xffff);
-  }
-  if (y > 25 || y < -25)
-  {
-    pca9532_setLeds(0xFC00, 0xffff);
-  }
   if (y > 32 || y < -32)
   {
-    pca9532_setLeds(0xFF00, 0xffff);
+    led_mask |= 0xFF00;
   }
+  else if (y > 25 || y < -25)
+  {
+    led_mask |= 0xFC00;
+  }
+  else if (y > 17 || y < -17)
+  {
+    led_mask |= 0xF000;
+  }
+  else if (y > 7 || y < -7)
+  {
+    led_mask |= 0xC000;
+  }
+
+  pca9532_setLeds(led_mask, 0xFFFF);
 }
 
 int main(void)
