@@ -108,14 +108,14 @@ static void delay_us(uint32_t us)
 static void increase_amplifier_volume(int levels)
 {
   // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
-  GPIO_SetValue(0, 1U<<28U);
+  GPIO_SetValue(0, ((uint32_t)1U<<28U));
 
   for (int i = 0; i < levels; i++)
   {
     // Impuls zegara (Wysoki -> Niski)
-    GPIO_SetValue(0, 1U<<27U);    // CLK High
+    GPIO_SetValue(0, ((uint32_t)1U<<27U));    // CLK High
     delay_us(10);                 // Krótka przerwa
-    GPIO_ClearValue(0, 1U<<27U);  // CLK Low
+    GPIO_ClearValue(0, ((uint32_t)1U<<27U));  // CLK Low
     delay_us(10);                 // Krótka przerwa
   }
 }
@@ -125,15 +125,15 @@ static void bee_init(void)
   static const int SAMPLE_RATE = 8000; // hz
   // 1. OBUDŹ WZMACNIACZ LM4811
   // Ustawienie pinów sterujących wzmacniaczem jako wyjścia
-  GPIO_SetDir(0, 1U<<27U, 1);
-  GPIO_SetDir(0, 1U<<28U, 1);
-  GPIO_SetDir(2, 1U<<13U, 1);
-  GPIO_SetDir(0, 1U<<26U, 1);
+  GPIO_SetDir(0, ((uint32_t)1U<<27U), 1);
+  GPIO_SetDir(0, ((uint32_t)1U<<28U), 1);
+  GPIO_SetDir(2, ((uint32_t)1U<<13U), 1);
+  GPIO_SetDir(0, ((uint32_t)1U<<26U), 1);
 
   // Stan niski na pinie 2.13 wyłącza tryb "shutdown" wzmacniacza
-  GPIO_ClearValue(0, 1U<<27U); // LM4811-clk
-  GPIO_ClearValue(0, 1U<<28U); // LM4811-up/dn
-  GPIO_ClearValue(2, 1U<<13U); // LM4811-shutdn
+  GPIO_ClearValue(0, ((uint32_t)1U<<27U)); // LM4811-clk
+  GPIO_ClearValue(0, ((uint32_t)1U<<28U)); // LM4811-up/dn
+  GPIO_ClearValue(2, ((uint32_t)1U<<13U)); // LM4811-shutdn
 
   increase_amplifier_volume(16); // max
 
@@ -153,7 +153,7 @@ static void bee_init(void)
   TIM_TIMERCFG_Type TIM_ConfigStruct;
   TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
-  LPC_SC->PCONP |= (1U << 22U); // Zasilanie Timera 2
+  LPC_SC->PCONP |= ((uint32_t)1U << 22U); // Zasilanie Timera 2
 
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
   TIM_ConfigStruct.PrescaleValue = 1;
@@ -244,12 +244,12 @@ static void rotate_motor(uint8_t joyState)
     TIM_Cmd(LPC_TIM1, ENABLE);
   }
 
-  if (curr_value < 500 && curr_value > 0)
+  if ((curr_value < 500) && (curr_value > 0))
   {
     curr_value = 500;
   }
 
-  if (curr_value > -500 && curr_value < 0)
+  if ((curr_value > -500) && (curr_value < 0))
   {
     curr_value = -500;
   }
@@ -271,6 +271,8 @@ static void rotate_motor(uint8_t joyState)
   else if (curr_value < -1000)
   {
     curr_value = -1000;
+  } else {
+
   }
 
   if (curr_value > 0)
@@ -302,6 +304,8 @@ static void update_oled_theme_based_on_light(void)
   else if (lux < LUX_DARK_THRESHOLD)
   {
     curr_theme = DARK;
+  } else {
+
   }
 }
 
@@ -318,7 +322,7 @@ static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
 
 static void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
-  if (line >= LINE_COUNT || data == NULL)
+  if ((line >= LINE_COUNT) || (data == NULL))
   {
     return;
   }
@@ -365,7 +369,7 @@ static void update_oled_with_buffer(void)
     oled_fg = OLED_COLOR_WHITE;
   }
 
-  if (curr_theme != prev_theme || first_draw)
+  if ((curr_theme != prev_theme) || first_draw)
   {
     oled_clearScreen(oled_bg);
   }
@@ -374,7 +378,7 @@ static void update_oled_with_buffer(void)
   {
     for (int i = 0; i < LINE_LENGTH; ++i)
     {
-      if (oled_buffer[line][i] != prev_oled_buffer[line][i] || curr_theme != prev_theme || first_draw)
+      if ((oled_buffer[line][i] != prev_oled_buffer[line][i]) || (curr_theme != prev_theme) || (first_draw))
       {
         oled_putChar(
           i * (CHAR_WIDTH + 2),
@@ -411,13 +415,15 @@ static void update_oled_message(void)
   else if (curr_value < 0)
   {
     state = "Opuszczanie";
+  } else {
+
   }
 
   uint8_t tens = (uint8_t)((abs(curr_value) / 10) % 10) + '0';
   uint8_t hundreds = (uint8_t)((abs(curr_value) / 100) % 10) + '0';
   uint8_t thousands = (uint8_t)((abs(curr_value) / 1000) % 10) + '0';
 
-  if (curr_value == 1000 || curr_value == -1000)
+  if ((curr_value == 1000) || (curr_value == -1000))
   {
     thousands = '5';
   }
@@ -460,14 +466,14 @@ static void init_pwm(void)
   PINSEL_ConfigPin(&PinCfg);
   LPC_PWM1->MR1 = 500; // 50%
   LPC_PWM1->LER |= (1U << 1U); // zatwierdzenie rejestru MR1
-  LPC_PWM1->PCR |= (1U << (9U + 0U)); // aktywacja wyjscia sygnalu dla kanalu 2
+  LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 0U))); // aktywacja wyjscia sygnalu dla kanalu 2
 
   // PIO2_3
   PinCfg.Pinnum = 3;
   PINSEL_ConfigPin(&PinCfg);
   LPC_PWM1->MR4 = 500; // 50%
   LPC_PWM1->LER |= (1U << 4U); // zatwierdzenie MR4
-  LPC_PWM1->PCR |= (1U << (9U + 3U));
+  LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 3U)));
 }
 
 static void my_set_pwm_value(int channel, int value)
@@ -545,36 +551,36 @@ static void update_leds(int8_t x, int8_t y)
 {
   pca9532_setLeds(0x0000, 0xffff);
 
-  if (x > 7 || x < -7)
+  if ((x > 7) || (x < -7))
   {
     pca9532_setLeds(0x003, 0xffff);
   }
-  if (x > 17 || x < -17)
+  if ((x > 17) || (x < -17))
   {
     pca9532_setLeds(0x000F, 0xffff);
   }
-  if (x > 25 || x < -25)
+  if ((x > 25) || (x < -25))
   {
     pca9532_setLeds(0x003f, 0xffff);
   }
-  if (x > 32 || x < -32)
+  if ((x > 32) || (x < -32))
   {
     pca9532_setLeds(0x00ff, 0xffff);
   }
 
-  if (y > 7 || y < -7)
+  if ((y > 7) || (y < -7))
   {
     pca9532_setLeds(0xC000, 0xffff);
   }
-  if (y > 17 || y < -17)
+  if ((y > 17) || (y < -17))
   {
     pca9532_setLeds(0xF000, 0xffff);
   }
-  if (y > 25 || y < -25)
+  if ((y > 25) || (y < -25))
   {
     pca9532_setLeds(0xFC00, 0xffff);
   }
-  if (y > 32 || y < -32)
+  if ((y > 32) || (y < -32))
   {
     pca9532_setLeds(0xFF00, 0xffff);
   }
@@ -634,7 +640,7 @@ int main(void)
     const uint8_t temp_alert[] = "TEMP!";
     const uint8_t reset[] = "";
 
-    if (x > 17 || x < -17 || y > 17 || y < -17)
+    if ((x > 17) || (x < -17) || (y > 17) || (y < -17))
     {
       is_tilt_warn = 1;
     }
@@ -649,7 +655,7 @@ int main(void)
 
       static int prev_value = 69;
 
-      if (abs(curr_value - prev_value) > 100 && curr_value != 0)
+      if ((abs(curr_value - prev_value) > 100) && (curr_value != 0))
       {
         timer_reset();
       }
@@ -687,6 +693,8 @@ int main(void)
     else if (ticks == 0) 
     {
       is_time_warn = 0;
+    } else {
+
     }
 
     if (cnt % 100 == 0)
