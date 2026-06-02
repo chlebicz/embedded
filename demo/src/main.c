@@ -600,7 +600,10 @@ static void update_leds(int8_t x, int8_t y)
     led_mask |= 0xC000;
   }
 
-  pca9532_setLeds(led_mask, 0xFFFF);
+  if (x > 7 || x < -7 || y > 7 || y < -7)
+  {
+    pca9532_setLeds(led_mask, 0xFFFF);
+  }
 }
 
 int main(void)
