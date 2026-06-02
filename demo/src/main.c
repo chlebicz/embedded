@@ -100,9 +100,30 @@ static void timer_stop(void)
   ticks = 0;
 }
 
+static void init_delay_timer(void)
+{
+  TIM_TIMERCFG_Type TIM_ConfigStruct;
+
+  // Set prescaler to tick exactly every 1 microsecond
+  TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+  TIM_ConfigStruct.PrescaleValue = 1;
+  
+  // Initialize Timer 3
+  TIM_Init(LPC_TIM3, TIM_TIMER_MODE, &TIM_ConfigStruct);
+}
+
 static void delay_us(uint32_t us)
 {
-  for (volatile uint32_t i = 0; i < (us * 30); i++) {}
+  LPC_TIM3->TCR = 0x02; // Reset Timer Counter (TC = 0)
+  LPC_TIM3->TCR = 0x01; // Enable and Start Timer
+
+  // Wait until the Timer Counter reaches the requested microseconds
+  while (LPC_TIM3->TC < us) 
+  {
+    // Blocking wait
+  }
+
+  LPC_TIM3->TCR = 0x00; // Stop the Timer to save power
 }
 
 static void increase_amplifier_volume(int levels)
@@ -596,6 +617,8 @@ int main(void)
   init_pwm();
   acc_init();
   light_enable();
+
+  init_delay_timer();
 
   joystick_init();
   oled_init();
