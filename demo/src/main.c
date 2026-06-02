@@ -277,12 +277,12 @@ static void rotate_motor(uint8_t joyState)
 
   if ((joyState & JOYSTICK_RIGHT) != 0)
   {
-    curr_value+=10;
+    curr_value+=3;
   }
 
   if ((joyState & JOYSTICK_LEFT) != 0)
   {
-    curr_value-=10;
+    curr_value-=3;
   }
 
   if (curr_value > 1000)
