@@ -29,7 +29,8 @@ void check_failed(uint8_t *file, uint32_t line);
 
 /* Forward declarations for static functions used before definition */
 static void update_oled_message(void);
-static void my_set_pwm_value(int32_t channel, int32_t value);
+static void my_set_pwm_value(int channel, int value);
+void Timer0_Wait(uint32_t time); /* Prototyp usunie ostrzezenia o braku deklaracji */
 
 enum Theme
 {
@@ -38,7 +39,7 @@ enum Theme
 };
 static enum Theme curr_theme = DARK;
 
-static int32_t curr_value = 0; // Moc silnika - precyzyjny typ dla MISRA
+static int curr_value = 0;                      // Moc silnika
 
 static uint16_t volume = 0U;
 
@@ -61,11 +62,8 @@ static void init_adc(void)
    * Frequency at 0.2Mhz
    * ADC channel 0, no Interrupt
    */
-  /* cppcheck-suppress misra-c2012-11.4 */
   ADC_Init(LPC_ADC, 200000U);
-  /* cppcheck-suppress misra-c2012-11.4 */
   ADC_IntConfig(LPC_ADC, ADC_CHANNEL_0, DISABLE);
-  /* cppcheck-suppress misra-c2012-11.4 */
   ADC_ChannelCmd(LPC_ADC, ADC_CHANNEL_0, ENABLE);
 }
 
@@ -86,26 +84,21 @@ static void timer_reset(void)
   TIM_MatchConfigStruct.MatchChannel = 0U;
   TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 1000
   TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
-  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 1 sekundzie
+  TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 1 sekundzie (uruchomimy go znowu ręcznie)
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
   TIM_MatchConfigStruct.MatchValue = 1000U;
 
   // Inicjalizacja
-  /* cppcheck-suppress misra-c2012-11.4 */
   TIM_Init(LPC_TIM1, TIM_TIMER_MODE, &TIM_ConfigStruct);
-  /* cppcheck-suppress misra-c2012-11.4 */
   TIM_ConfigMatch(LPC_TIM1, &TIM_MatchConfigStruct);
 
   // Włączenie przerwań dla Timera 1 w kontrolerze NVIC
-  /* cppcheck-suppress misra-c2012-11.4 */
   NVIC_SetPriority(TIMER1_IRQn, 10U);
-  /* cppcheck-suppress misra-c2012-11.4 */
   NVIC_EnableIRQ(TIMER1_IRQn);
 }
 
 static void timer_stop(void)
 {
-  /* cppcheck-suppress misra-c2012-11.4 */
   NVIC_DisableIRQ(TIMER1_IRQn);
   ticks = 0U;
 }
@@ -118,12 +111,12 @@ static void delay_us(uint32_t us)
   }
 }
 
-static void increase_amplifier_volume(int32_t levels)
+static void increase_amplifier_volume(int levels)
 {
   // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
   GPIO_SetValue(0U, ((uint32_t)1U<<28U));
 
-  for (int32_t i = 0; i < levels; i++)
+  for (int i = 0; i < levels; i++)
   {
     // Impuls zegara (Wysoki -> Niski)
     GPIO_SetValue(0U, ((uint32_t)1U<<27U));    // CLK High
@@ -148,7 +141,7 @@ static void bee_init(void)
   GPIO_ClearValue(0U, ((uint32_t)1U<<28U)); // LM4811-up/dn
   GPIO_ClearValue(2U, ((uint32_t)1U<<13U)); // LM4811-shutdn
 
-  increase_amplifier_volume((int32_t)16); // max
+  increase_amplifier_volume(16); // max
 
   // 2. SKONFIGURUJ PIN DAC
   PINSEL_CFG_Type PinCfgDAC;
@@ -160,14 +153,12 @@ static void bee_init(void)
   PINSEL_ConfigPin(&PinCfgDAC);
 
   // Inicjalizacja peryferium DAC
-  /* cppcheck-suppress misra-c2012-11.4 */
   DAC_Init(LPC_DAC);
 
   // 3. SKONFIGURUJ TIMER 2
   TIM_TIMERCFG_Type TIM_ConfigStruct;
   TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
-  /* cppcheck-suppress misra-c2012-11.4 */
   LPC_SC->PCONP |= ((uint32_t)1U << 22U); // Zasilanie Timera 2
 
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
@@ -182,17 +173,12 @@ static void bee_init(void)
   // Czas trwania jednej próbki w mikrosekundach
   TIM_MatchConfigStruct.MatchValue = 1000000U / SAMPLE_RATE;
 
-  /* cppcheck-suppress misra-c2012-11.4 */
   TIM_Init(LPC_TIM2, TIM_TIMER_MODE, &TIM_ConfigStruct);
-  /* cppcheck-suppress misra-c2012-11.4 */
   TIM_ConfigMatch(LPC_TIM2, &TIM_MatchConfigStruct);
 
-  /* cppcheck-suppress misra-c2012-11.4 */
   NVIC_SetPriority(TIMER2_IRQn, 10U);
-  /* cppcheck-suppress misra-c2012-11.4 */
   NVIC_EnableIRQ(TIMER2_IRQn);
 
-  /* cppcheck-suppress misra-c2012-11.4 */
   TIM_Cmd(LPC_TIM2, ENABLE);
 }
 
@@ -212,13 +198,11 @@ static uint32_t getTicks(void)
 void TIMER1_IRQHandler(void)
 {
   // Check if the interrupt came from Match 0
-  /* cppcheck-suppress misra-c2012-11.4 */
   if (TIM_GetIntStatus(LPC_TIM1, TIM_MR0_INT) == SET)
   {
     ticks++;
 
     // Clear the interrupt flag so it doesn't loop infinitely
-    /* cppcheck-suppress misra-c2012-11.4 */
     TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
   }
 }
@@ -228,26 +212,27 @@ void TIMER1_IRQHandler(void)
 
 void TIMER2_IRQHandler(void)
 {  
-  /* cppcheck-suppress misra-c2012-11.4 */
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
   {
-      static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
+	  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
       // Wyczyść flagę przerwania
-      /* cppcheck-suppress misra-c2012-11.4 */
       TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
       // Pobierz 8-bitową próbkę (0..255)
       uint32_t sample = fatbee[current_sample_index];
 
       // Skalowanie głośności:
+      // volume: 0..4096
+      // sample DAC: 10-bit (0..1023)
       uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
 
       // Wyślij do DAC
-      /* cppcheck-suppress misra-c2012-11.4 */
       DAC_UpdateValue(LPC_DAC, dac_value);
 
+      // Następna próbka
       current_sample_index++;
 
+      // Zapętlenie audio
       if (current_sample_index >= FATBEE_SIZE)
       {
           current_sample_index = AUDIO_START_OFFSET;
@@ -257,61 +242,59 @@ void TIMER2_IRQHandler(void)
 
 static void rotate_motor(uint8_t joyState)
 {
-  /* Rzutowanie na uint32_t dla MISRA 10.4 */
-  if (((uint32_t)joyState & (uint32_t)JOYSTICK_CENTER) != 0U)
+  if ((joyState & JOYSTICK_CENTER) != 0U)
   {
-    curr_value = (int32_t)0;
-    /* cppcheck-suppress misra-c2012-11.4 */
+    curr_value = 0;
     TIM_Cmd(LPC_TIM1, ENABLE);
   }
 
-  if ((curr_value < (int32_t)500) && (curr_value > (int32_t)0))
+  if ((curr_value < 500) && (curr_value > 0))
   {
-    curr_value = (int32_t)500;
+    curr_value = 500;
   }
 
-  if ((curr_value > (int32_t)-500) && (curr_value < (int32_t)0))
+  if ((curr_value > -500) && (curr_value < 0))
   {
-    curr_value = (int32_t)-500;
+    curr_value = -500;
   }
 
-  if (((uint32_t)joyState & (uint32_t)JOYSTICK_RIGHT) != 0U)
+  if ((joyState & JOYSTICK_RIGHT) != 0U)
   {
-    curr_value += (int32_t)10;
+    curr_value += 10;
   }
 
-  if (((uint32_t)joyState & (uint32_t)JOYSTICK_LEFT) != 0U)
+  if ((joyState & JOYSTICK_LEFT) != 0U)
   {
-    curr_value -= (int32_t)10;
+    curr_value -= 10;
   }
 
-  if (curr_value > (int32_t)1000)
+  if (curr_value > 1000)
   {
-    curr_value = (int32_t)1000;
+    curr_value = 1000;
   }
-  else if (curr_value < (int32_t)-1000)
+  else if (curr_value < -1000)
   {
-    curr_value = (int32_t)-1000;
+    curr_value = -1000;
   } 
   else 
   {
     /* Zgodnie z MISRA puste else powinno zawierać komentarz */
   }
 
-  if (curr_value > (int32_t)0)
+  if (curr_value > 0)
   {
-    my_set_pwm_value((int32_t)1, curr_value); 
-    my_set_pwm_value((int32_t)2, (int32_t)0);          
+    my_set_pwm_value(1, curr_value); // Pin P2.0 dostaje sygnał PWM (pulsujące napięcie)
+    my_set_pwm_value(2, 0);          // Pin P2.3 jest zwarty do masy (GND)
   }
-  else if (curr_value < (int32_t)0)
+  else if (curr_value < 0)
   {
-    my_set_pwm_value((int32_t)1, (int32_t)0);           
-    my_set_pwm_value((int32_t)2, -curr_value); 
+    my_set_pwm_value(1, 0);           // Pin P2.0 jest zwarty do masy
+    my_set_pwm_value(2, -curr_value); // Pin P2.3 dostaje sygnał PWM
   }
   else
   {
-    my_set_pwm_value((int32_t)1, (int32_t)0);
-    my_set_pwm_value((int32_t)2, (int32_t)0);
+    my_set_pwm_value(1, 0);
+    my_set_pwm_value(2, 0);
   }
 }
 
@@ -319,11 +302,11 @@ static void update_oled_theme_based_on_light(void)
 {
   uint32_t lux = light_read();
 
-  if (lux > (uint32_t)LUX_LIGHT_THRESHOLD)
+  if (lux > LUX_LIGHT_THRESHOLD)
   {
     curr_theme = LIGHT;
   }
-  else if (lux < (uint32_t)LUX_DARK_THRESHOLD)
+  else if (lux < LUX_DARK_THRESHOLD)
   {
     curr_theme = DARK;
   } 
@@ -346,6 +329,7 @@ static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1U] = {
 
 static void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
+  /* Usunięto early return (MISRA 15.5) i wyeliminowano modyfikację argumentu 'data' (MISRA 17.8) */
   if ((line < LINE_COUNT) && (data != NULL))
   {
     const uint8_t* ptr = data;
@@ -380,6 +364,7 @@ static void update_oled_with_buffer(void)
   "            "
  };
 
+  /* Poprawka MISRA 12.3: Rozdzielono wielokrotne deklaracje zmiennych dla uniknięcia wirtualnego operatora przecinka */
   oled_color_t oled_fg;
   oled_color_t oled_bg;
 
@@ -405,7 +390,7 @@ static void update_oled_with_buffer(void)
     {
       if ((oled_buffer[line][i] != prev_oled_buffer[line][i]) || (curr_theme != prev_theme) || (first_draw != 0U))
       {
-        (void)oled_putChar(
+        oled_putChar(
           (uint16_t)(i * (CHAR_WIDTH + 2U)),
           (uint16_t)(line * (CHAR_HEIGHT + 2U)),
           oled_buffer[line][i],
@@ -423,14 +408,14 @@ static void update_oled_with_buffer(void)
 
 static void update_oled_message(void)
 {
-  const char* state = "";          
-  const char* power = "";          
+  const char* state = "";          // Stoi/Wciaganie/Opuszczanie
+  const char* power = "";          // wartosc mocy
 
-  if (curr_value == (int32_t)0)
+  if (curr_value == 0)
   {
     state = "Stoi";
   }
-  else if (curr_value > (int32_t)0)
+  else if (curr_value > 0)
   {
     state = "Wciaganie";
   }
@@ -439,6 +424,7 @@ static void update_oled_message(void)
     state = "Opuszczanie";
   }
 
+  /* Poprawka MISRA 10.3 & 10.8: Złożone operacje przed rzutowaniem przeniesione do tymczasowych zmiennych uint32_t */
   uint32_t u_curr = (uint32_t)abs(curr_value);
   
   uint32_t calc_tens = ((u_curr / 10U) % 10U) + 48U;
@@ -450,9 +436,9 @@ static void update_oled_message(void)
   uint32_t calc_thousands = ((u_curr / 1000U) % 10U) + 48U;
   uint8_t thousands = (uint8_t)calc_thousands;
 
-  if ((curr_value == (int32_t)1000) || (curr_value == (int32_t)-1000))
+  if ((curr_value == 1000) || (curr_value == -1000))
   {
-    thousands = (uint8_t)53U; /* ASCII '5' */
+    thousands = (uint8_t)53U; /* ASCII '5' jako uint8_t */
   }
 
   char secondLine[] = { '1', '0', '0', '%', ' ', 'm', 'o', 'c', 'y', '\0' };
@@ -474,12 +460,12 @@ static void update_oled_message(void)
 
 static void init_pwm(void)
 {
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->MR0 = 1000U; 
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->LER |= (1U << 0U); 
+  LPC_PWM1->MR0 = 1000U; // okres pwm
+  LPC_PWM1->LER |= (1U << 0U); // zatwierdzenie MR0
+  // rejestry MR są 32-bitowe
 
-  /* cppcheck-suppress misra-c2012-11.4 */
+  // bit 0 - wlaczenie glownego licznika i prescalera
+  // bit 3 - pwm enable
   LPC_PWM1->TCR |= (1U << 0U) | (1U << 3U);
 
   PINSEL_CFG_Type PinCfg;
@@ -488,39 +474,31 @@ static void init_pwm(void)
   PinCfg.Funcnum = 1U;
   PinCfg.OpenDrain = 0U;
 
+  // PIO1_9
   PinCfg.Pinnum = 0U;
   PINSEL_ConfigPin(&PinCfg);
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->MR1 = 500U; 
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->LER |= (1U << 1U); 
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 0U))); 
+  LPC_PWM1->MR1 = 500U; // 50%
+  LPC_PWM1->LER |= (1U << 1U); // zatwierdzenie rejestru MR1
+  LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 0U))); // aktywacja wyjscia sygnalu dla kanalu 2
 
+  // PIO2_3
   PinCfg.Pinnum = 3U;
   PINSEL_ConfigPin(&PinCfg);
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->MR4 = 500U; 
-  /* cppcheck-suppress misra-c2012-11.4 */
-  LPC_PWM1->LER |= (1U << 4U); 
-  /* cppcheck-suppress misra-c2012-11.4 */
+  LPC_PWM1->MR4 = 500U; // 50%
+  LPC_PWM1->LER |= (1U << 4U); // zatwierdzenie MR4
   LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 3U)));
 }
 
-static void my_set_pwm_value(int32_t channel, int32_t value)
+static void my_set_pwm_value(int channel, int value)
 {
-  if (channel == (int32_t)1)
+  if (channel == 1)
   {
-    /* cppcheck-suppress misra-c2012-11.4 */
     LPC_PWM1->MR1 = (uint32_t)value;
-    /* cppcheck-suppress misra-c2012-11.4 */
     LPC_PWM1->LER |= (1U << 1U);
   }
-  else if (channel == (int32_t)2)
+  else if (channel == 2)
   {
-    /* cppcheck-suppress misra-c2012-11.4 */
     LPC_PWM1->MR4 = (uint32_t)value;
-    /* cppcheck-suppress misra-c2012-11.4 */
     LPC_PWM1->LER |= (1U << 4U);
   }
   else
@@ -551,9 +529,10 @@ static void init_ssp(void)
 
   SSP_ConfigStructInit(&SSP_ConfigStruct);
 
-  /* cppcheck-suppress misra-c2012-11.4 */
+  // Initialize SSP peripheral with parameter given in structure above
   SSP_Init(LPC_SSP1, &SSP_ConfigStruct);
-  /* cppcheck-suppress misra-c2012-11.4 */
+
+  // Enable SSP peripheral
   SSP_Cmd(LPC_SSP1, ENABLE);
 }
 
@@ -561,69 +540,67 @@ static void init_i2c(void)
 {
   PINSEL_CFG_Type PinCfg;
 
+  /* Initialize I2C2 pin connect */
   PinCfg.Funcnum = 2U;
-  PinCfg.Pinnum = 10U; 
+  PinCfg.Pinnum = 10U; //GPIO_26-SDA P0.10 - do przesyłania danych
   PinCfg.Portnum = 0U;
   PINSEL_ConfigPin(&PinCfg);
-  PinCfg.Pinnum = 11U; 
+  PinCfg.Pinnum = 11U; //GPIO_27-SCL P0.11 - do synchronizacji
   PINSEL_ConfigPin(&PinCfg);
 
-  /* cppcheck-suppress misra-c2012-11.4 */
+  // Initialize I2C peripheral
+  // 100kHZ - taktowanie zegara SCL
   I2C_Init(LPC_I2C2, 100000U);
-  /* cppcheck-suppress misra-c2012-11.4 */
+
+  /* Enable I2C1 operation */
   I2C_Cmd(LPC_I2C2, ENABLE);
 }
 
 static void update_volume(void)
 {
-  /* cppcheck-suppress misra-c2012-11.4 */
   ADC_StartCmd(LPC_ADC, ADC_START_NOW);
-  
-  /* cppcheck-suppress misra-c2012-11.4 */
+  // Wait conversion complete
   while (ADC_ChannelGetStatus(LPC_ADC, ADC_CHANNEL_0, ADC_DATA_DONE) == RESET)
   {
       /* MISRA 15.6 - pętla while musi zawierać nawiasy {} */
   }
-  
-  /* cppcheck-suppress misra-c2012-11.4 */
-  volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); 
+  volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
 }
 
 static void update_leds(int8_t x, int8_t y)
 {
   pca9532_setLeds(0x0000U, 0xFFFFU);
 
-  /* Rzutowanie literałów dla MISRA 10.4 */
-  if ((x > (int8_t)7) || (x < (int8_t)-7))
+  if ((x > 7) || (x < -7))
   {
     pca9532_setLeds(0x0003U, 0xFFFFU);
   }
-  if ((x > (int8_t)17) || (x < (int8_t)-17))
+  if ((x > 17) || (x < -17))
   {
     pca9532_setLeds(0x000FU, 0xFFFFU);
   }
-  if ((x > (int8_t)25) || (x < (int8_t)-25))
+  if ((x > 25) || (x < -25))
   {
     pca9532_setLeds(0x003FU, 0xFFFFU);
   }
-  if ((x > (int8_t)32) || (x < (int8_t)-32))
+  if ((x > 32) || (x < -32))
   {
     pca9532_setLeds(0x00FFU, 0xFFFFU);
   }
 
-  if ((y > (int8_t)7) || (y < (int8_t)-7))
+  if ((y > 7) || (y < -7))
   {
     pca9532_setLeds(0xC000U, 0xFFFFU);
   }
-  if ((y > (int8_t)17) || (y < (int8_t)-17))
+  if ((y > 17) || (y < -17))
   {
     pca9532_setLeds(0xF000U, 0xFFFFU);
   }
-  if ((y > (int8_t)25) || (y < (int8_t)-25))
+  if ((y > 25) || (y < -25))
   {
     pca9532_setLeds(0xFC00U, 0xFFFFU);
   }
-  if ((y > (int8_t)32) || (y < (int8_t)-32))
+  if ((y > 32) || (y < -32))
   {
     pca9532_setLeds(0xFF00U, 0xFFFFU);
   }
@@ -631,12 +608,13 @@ static void update_leds(int8_t x, int8_t y)
 
 int main(void)
 {
+  //uint8_t state = 0U;
   int8_t xoff = 0;
   int8_t yoff = 0;
   int8_t zoff = 0;
-  int8_t x = 0; 
-  int8_t y = 0; 
-  int8_t z = 0; 
+  int8_t x = 0; // (lewo – prawo)
+  int8_t y = 0; // (przód – tył)
+  int8_t z = 0; // (góra – dół)
 
   init_i2c();
   init_ssp();
@@ -657,26 +635,24 @@ int main(void)
   }
   acc_read(&x, &y, &z);
 
-  /* Jawne rzutowanie przy zmianie znaku - 10.4 */
-  xoff = (int8_t)(-(int16_t)x);
-  yoff = (int8_t)(-(int16_t)y);
-  zoff = (int8_t)(-(int16_t)z);
+  xoff = -x;
+  yoff = -y;
+  zoff = -z;
   bee_init();
 
-  int32_t cnt = 0;
-  uint8_t is_time_warn = 0U;
-  uint8_t is_temp_warn = 0U;
+  int cnt = 0;
+  //int is_tilt_warn = 0;
+  int is_time_warn = 0;
+  int is_temp_warn = 0;
   
   while (1)
   {
     update_oled_theme_based_on_light();
     uint8_t state = joystick_read();
     acc_read(&x, &y, &z);
-    
-    /* Rozwiązanie dla 10.4 przy arytmetyce */
-    x = (int8_t)((int16_t)x + (int16_t)xoff);
-    y = (int8_t)((int16_t)y + (int16_t)yoff);
-    z = (int8_t)((int16_t)z + (int16_t)zoff);
+    x = x + xoff;
+    y = y + yoff;
+    z = z + zoff;
 
     update_leds(x, y);
     
@@ -685,28 +661,28 @@ int main(void)
     const uint8_t temp_alert[] = "TEMP!";
     const uint8_t reset[] = "";
 
-    uint8_t is_tilt_warn;
-    if ((x > (int8_t)17) || (x < (int8_t)-17) || (y > (int8_t)17) || (y < (int8_t)-17))
+	int is_tilt_warn;
+    if ((x > 17) || (x < -17) || (y > 17) || (y < -17))
     {
-      is_tilt_warn = 1U;
+      is_tilt_warn = 1;
     }
     else
     {
-      is_tilt_warn = 0U;
+      is_tilt_warn = 0;
     }
 
-    if (state != (uint8_t)0U)
+    if (state != 0U)
     {
       rotate_motor(state);
 
-      static int32_t prev_value = 69;
+      static int prev_value = 69;
 
-      if ((abs(curr_value - prev_value) > (int32_t)100) && (curr_value != (int32_t)0))
+      if ((abs(curr_value - prev_value) > 100) && (curr_value != 0))
       {
         timer_reset();
       }
 
-      if (curr_value == (int32_t)0)
+      if (curr_value == 0)
       {
         timer_stop();
       }
@@ -718,56 +694,59 @@ int main(void)
       }
     }
 
-    uint32_t calc_units = ((uint32_t)ticks % 10U) + 48U;
+    /* Poprawka MISRA 10.8: Zmiana literału '0' na 48U i unikanie bezpośredniego rzutowania złożonego wyrażenia */
+    uint32_t calc_units = (ticks % 10U) + 48U;
     uint8_t units = (uint8_t)calc_units;
     
-    uint32_t calc_tens_ticks = (((uint32_t)ticks / 10U) % 10U) + 48U;
+    uint32_t calc_tens_ticks = ((ticks / 10U) % 10U) + 48U;
     uint8_t tens_ticks = (uint8_t)calc_tens_ticks;
     
     uint8_t value[] = { tens_ticks, units, '\0' };
 
+    // Line 2 (Y=30) mapped for timer
     oled_buffer_put(2U, value);
 
-    if (ticks >= (uint8_t)50U)
+    if (ticks >= 50U)
     {
-      curr_value = (int32_t)0;
-      my_set_pwm_value((int32_t)1, (int32_t)0);
-      my_set_pwm_value((int32_t)2, (int32_t)0);
+      curr_value = 0;
+      my_set_pwm_value(1, 0);
+      my_set_pwm_value(2, 0);
       timer_stop();
     }
-    else if (ticks >= (uint8_t)30U)
+    else if (ticks >= 30U)
     {
-      is_time_warn = 1U;
+      is_time_warn = 1;
     }
-    else if (ticks == (uint8_t)0U) 
+    else if (ticks == 0U) 
     {
-      is_time_warn = 0U;
+      is_time_warn = 0;
     } 
     else 
     {
       /* Puste else */
     }
 
-    if ((cnt % (int32_t)100) == (int32_t)0)
+    if ((cnt % 100) == 0)
     {
       int32_t t_val = temp_read();
       
-      int32_t t_int_calc = t_val / (int32_t)10;
-      int32_t t_dec_calc = t_val % (int32_t)10;
+      int32_t t_int_calc = t_val / 10;
+      int32_t t_dec_calc = t_val % 10;
       uint8_t t_int = (uint8_t)t_int_calc;
       uint8_t t_dec = (uint8_t)t_dec_calc;
       
       char temp_str[] = { 'T', 'e', 'm', 'p', ':', ' ', '0', '0', '.', '0', 'C', '\0' };
 
-      if (t_int >= (uint8_t)30U)
+      if (t_int >= 30U)
       {
-        is_temp_warn = 1U;
+        is_temp_warn = 1;
       }
       else
       {
-        is_temp_warn = 0U;
+        is_temp_warn = 0;
       }
 
+      /* Poprawka MISRA 10.8: Użyto zmiennych pomocniczych typu uin32_t dla bezpieczeństwa operacji */
       uint32_t t_int_u32 = (uint32_t)t_int;
       uint32_t char1_val = ((t_int_u32 / 10U) % 10U) + 48U;
       temp_str[6] = (char)char1_val;
@@ -784,19 +763,21 @@ int main(void)
         temp_str[6] = ' ';
       }
 
+      // Line 4 (Y=50) mapped for temperature
       oled_buffer_put(4U, (const uint8_t*)temp_str);
-      cnt = (int32_t)0;
+      cnt = 0;
     }
 
-    if (is_tilt_warn != 0U) 
+    /* Zmiana MISRA 14.4 - uzywamy jawnych warunków dla is_*_warn */
+    if (is_tilt_warn != 0) 
     {
       oled_buffer_put(3U, tilt_alert);
     } 
-    else if (is_time_warn != 0U) 
+    else if (is_time_warn != 0) 
     {
       oled_buffer_put(3U, time_alert);
     } 
-    else if (is_temp_warn != 0U)
+    else if (is_temp_warn != 0)
     {
       oled_buffer_put(3U, temp_alert);
     } 
@@ -805,7 +786,9 @@ int main(void)
       oled_buffer_put(3U, reset);
     }
 
+    // Flush to screen only when lines actually changed
     update_oled_with_buffer();
+
     update_volume();
 
     cnt++;
