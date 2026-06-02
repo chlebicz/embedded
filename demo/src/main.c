@@ -14,9 +14,10 @@
 
 #include "temp.h"
 #include "fatbee.h"
+#include "pca9532.h" /* Dodano dla pca9532_setLeds */
 
-#define LUX_DARK_THRESHOLD   100
-#define LUX_LIGHT_THRESHOLD  150
+#define LUX_DARK_THRESHOLD   100U
+#define LUX_LIGHT_THRESHOLD  150U
 
 /* Forward declarations to satisfy MISRA-C:2012 Rule 8.4 */
 void SysTick_Handler(void);
@@ -27,6 +28,7 @@ void check_failed(uint8_t *file, uint32_t line);
 /* Forward declarations for static functions used before definition */
 static void update_oled_message(void);
 static void my_set_pwm_value(int channel, int value);
+void Timer0_Wait(uint32_t time); /* Prototyp usunie ostrzezenia o braku deklaracji */
 
 enum Theme
 {
@@ -37,7 +39,7 @@ static enum Theme curr_theme = DARK;
 
 static int curr_value = 0;                      // Moc silnika
 
-static uint16_t volume = 0;
+static uint16_t volume = 0U;
 
 static void init_adc(void)
 {
@@ -47,103 +49,105 @@ static void init_adc(void)
    * Init ADC pin connect
    * AD0.0 on P0.23
    */
-  PinCfg.Funcnum = 1;
-  PinCfg.OpenDrain = 0;
-  PinCfg.Pinmode = 0;
-  PinCfg.Pinnum = 23;
-  PinCfg.Portnum = 0;
+  PinCfg.Funcnum = 1U;
+  PinCfg.OpenDrain = 0U;
+  PinCfg.Pinmode = 0U;
+  PinCfg.Pinnum = 23U;
+  PinCfg.Portnum = 0U;
   PINSEL_ConfigPin(&PinCfg);
 
   /* Configuration for ADC :
-   * 	Frequency at 0.2Mhz
-   *  ADC channel 0, no Interrupt
+   * Frequency at 0.2Mhz
+   * ADC channel 0, no Interrupt
    */
-  ADC_Init(LPC_ADC, 200000);
-  ADC_IntConfig(LPC_ADC,ADC_CHANNEL_0,DISABLE);
-  ADC_ChannelCmd(LPC_ADC,ADC_CHANNEL_0,ENABLE);
-
+  ADC_Init(LPC_ADC, 200000U);
+  ADC_IntConfig(LPC_ADC, ADC_CHANNEL_0, DISABLE);
+  ADC_ChannelCmd(LPC_ADC, ADC_CHANNEL_0, ENABLE);
 }
 
-static volatile uint8_t ticks = 0;
+static volatile uint8_t ticks = 0U;
 
 static void timer_reset(void)
 {
-  ticks = 0;
+  ticks = 0U;
 
   TIM_TIMERCFG_Type TIM_ConfigStruct;
   TIM_MATCHCFG_Type TIM_MatchConfigStruct;
 
   // Konfiguracja timera na odliczanie w milisekundach (1000 us = 1 ms)
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
-  TIM_ConfigStruct.PrescaleValue = 1000;
+  TIM_ConfigStruct.PrescaleValue = 1000U;
 
   // Konfiguracja rejestru dopasowania (Match 0) na 1000 ms
-  TIM_MatchConfigStruct.MatchChannel = 0;
+  TIM_MatchConfigStruct.MatchChannel = 0U;
   TIM_MatchConfigStruct.IntOnMatch = ENABLE; // Wywołaj przerwanie, gdy doliczy do 1000
   TIM_MatchConfigStruct.ResetOnMatch = ENABLE; // Zresetuj licznik po osiągnięciu wartości
   TIM_MatchConfigStruct.StopOnMatch = DISABLE; // Zatrzymaj timer po 1 sekundzie (uruchomimy go znowu ręcznie)
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
-  TIM_MatchConfigStruct.MatchValue = 1000;
+  TIM_MatchConfigStruct.MatchValue = 1000U;
 
   // Inicjalizacja
   TIM_Init(LPC_TIM1, TIM_TIMER_MODE, &TIM_ConfigStruct);
   TIM_ConfigMatch(LPC_TIM1, &TIM_MatchConfigStruct);
 
   // Włączenie przerwań dla Timera 1 w kontrolerze NVIC
-  NVIC_SetPriority(TIMER1_IRQn, 10);
+  NVIC_SetPriority(TIMER1_IRQn, 10U);
   NVIC_EnableIRQ(TIMER1_IRQn);
 }
 
 static void timer_stop(void)
 {
   NVIC_DisableIRQ(TIMER1_IRQn);
-  ticks = 0;
+  ticks = 0U;
 }
 
 static void delay_us(uint32_t us)
 {
-  for (volatile uint32_t i = 0; i < (us * 30); i++) {}
+  for (volatile uint32_t i = 0U; i < (us * 30U); i++) 
+  {
+      /* Aktywne czekanie (w MISRA akceptowalne jako delay sprzętowy, pod warunkiem {} ) */
+  }
 }
 
 static void increase_amplifier_volume(int levels)
 {
   // Ustaw pin kierunku głośności (UP/DN) na WYSOKI (1 = Zgłaśnianie)
-  GPIO_SetValue(0, ((uint32_t)1U<<28U));
+  GPIO_SetValue(0U, ((uint32_t)1U<<28U));
 
   for (int i = 0; i < levels; i++)
   {
     // Impuls zegara (Wysoki -> Niski)
-    GPIO_SetValue(0, ((uint32_t)1U<<27U));    // CLK High
-    delay_us(10);                 // Krótka przerwa
-    GPIO_ClearValue(0, ((uint32_t)1U<<27U));  // CLK Low
-    delay_us(10);                 // Krótka przerwa
+    GPIO_SetValue(0U, ((uint32_t)1U<<27U));    // CLK High
+    delay_us(10U);                 // Krótka przerwa
+    GPIO_ClearValue(0U, ((uint32_t)1U<<27U));  // CLK Low
+    delay_us(10U);                 // Krótka przerwa
   }
 }
 
 static void bee_init(void)
 {
-  static const int SAMPLE_RATE = 8000; // hz
+  static const uint32_t SAMPLE_RATE = 8000U; // hz
   // 1. OBUDŹ WZMACNIACZ LM4811
   // Ustawienie pinów sterujących wzmacniaczem jako wyjścia
-  GPIO_SetDir(0, ((uint32_t)1U<<27U), 1);
-  GPIO_SetDir(0, ((uint32_t)1U<<28U), 1);
-  GPIO_SetDir(2, ((uint32_t)1U<<13U), 1);
-  GPIO_SetDir(0, ((uint32_t)1U<<26U), 1);
+  GPIO_SetDir(0U, ((uint32_t)1U<<27U), 1U);
+  GPIO_SetDir(0U, ((uint32_t)1U<<28U), 1U);
+  GPIO_SetDir(2U, ((uint32_t)1U<<13U), 1U);
+  GPIO_SetDir(0U, ((uint32_t)1U<<26U), 1U);
 
   // Stan niski na pinie 2.13 wyłącza tryb "shutdown" wzmacniacza
-  GPIO_ClearValue(0, ((uint32_t)1U<<27U)); // LM4811-clk
-  GPIO_ClearValue(0, ((uint32_t)1U<<28U)); // LM4811-up/dn
-  GPIO_ClearValue(2, ((uint32_t)1U<<13U)); // LM4811-shutdn
+  GPIO_ClearValue(0U, ((uint32_t)1U<<27U)); // LM4811-clk
+  GPIO_ClearValue(0U, ((uint32_t)1U<<28U)); // LM4811-up/dn
+  GPIO_ClearValue(2U, ((uint32_t)1U<<13U)); // LM4811-shutdn
 
   increase_amplifier_volume(16); // max
 
   // 2. SKONFIGURUJ PIN DAC
   PINSEL_CFG_Type PinCfgDAC;
-  PinCfgDAC.Funcnum = 2;   // Func 2 to AOUT (DAC)
-  PinCfgDAC.OpenDrain = 0;
-  PinCfgDAC.Pinmode = 0;
-  PinCfgDAC.Portnum = 0;
-  PinCfgDAC.Pinnum = 26;
+  PinCfgDAC.Funcnum = 2U;   // Func 2 to AOUT (DAC)
+  PinCfgDAC.OpenDrain = 0U;
+  PinCfgDAC.Pinmode = 0U;
+  PinCfgDAC.Portnum = 0U;
+  PinCfgDAC.Pinnum = 26U;
   PINSEL_ConfigPin(&PinCfgDAC);
 
   // Inicjalizacja peryferium DAC
@@ -156,27 +160,27 @@ static void bee_init(void)
   LPC_SC->PCONP |= ((uint32_t)1U << 22U); // Zasilanie Timera 2
 
   TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
-  TIM_ConfigStruct.PrescaleValue = 1;
+  TIM_ConfigStruct.PrescaleValue = 1U;
 
-  TIM_MatchConfigStruct.MatchChannel = 0;
+  TIM_MatchConfigStruct.MatchChannel = 0U;
   TIM_MatchConfigStruct.IntOnMatch = ENABLE;
   TIM_MatchConfigStruct.ResetOnMatch = ENABLE;
   TIM_MatchConfigStruct.StopOnMatch = DISABLE;
   TIM_MatchConfigStruct.ExtMatchOutputType = TIM_EXTMATCH_NOTHING;
 
   // Czas trwania jednej próbki w mikrosekundach
-  TIM_MatchConfigStruct.MatchValue = 1000000 / SAMPLE_RATE;
+  TIM_MatchConfigStruct.MatchValue = 1000000U / SAMPLE_RATE;
 
   TIM_Init(LPC_TIM2, TIM_TIMER_MODE, &TIM_ConfigStruct);
   TIM_ConfigMatch(LPC_TIM2, &TIM_MatchConfigStruct);
 
-  NVIC_SetPriority(TIMER2_IRQn, 10);
+  NVIC_SetPriority(TIMER2_IRQn, 10U);
   NVIC_EnableIRQ(TIMER2_IRQn);
 
   TIM_Cmd(LPC_TIM2, ENABLE);
 }
 
-static volatile uint32_t msTicks = 0; // Zegar systemowy dla termometru
+static volatile uint32_t msTicks = 0U; // Zegar systemowy dla termometru
 
 void SysTick_Handler(void)
 {
@@ -202,43 +206,42 @@ void TIMER1_IRQHandler(void)
 }
 
 #define FATBEE_SIZE (sizeof(fatbee) / sizeof(fatbee[0]))
-
-#define AUDIO_START_OFFSET 44
+#define AUDIO_START_OFFSET 44U
 
 void TIMER2_IRQHandler(void)
 {
   static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;  
 
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
-    {
-        // Wyczyść flagę przerwania
-        TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
+  {
+      // Wyczyść flagę przerwania
+      TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
-        // Pobierz 8-bitową próbkę (0..255)
-        uint32_t sample = fatbee[current_sample_index];
+      // Pobierz 8-bitową próbkę (0..255)
+      uint32_t sample = fatbee[current_sample_index];
 
-        // Skalowanie głośności:
-        // volume: 0..4096
-        // sample DAC: 10-bit (0..1023)
-        uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
+      // Skalowanie głośności:
+      // volume: 0..4096
+      // sample DAC: 10-bit (0..1023)
+      uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
 
-        // Wyślij do DAC
-        DAC_UpdateValue(LPC_DAC, dac_value);
+      // Wyślij do DAC
+      DAC_UpdateValue(LPC_DAC, dac_value);
 
-        // Następna próbka
-        current_sample_index++;
+      // Następna próbka
+      current_sample_index++;
 
-        // Zapętlenie audio
-        if (current_sample_index >= FATBEE_SIZE)
-        {
-            current_sample_index = AUDIO_START_OFFSET;
-        }
-    }
+      // Zapętlenie audio
+      if (current_sample_index >= FATBEE_SIZE)
+      {
+          current_sample_index = AUDIO_START_OFFSET;
+      }
+  }
 }
 
 static void rotate_motor(uint8_t joyState)
 {
-  if ((joyState & JOYSTICK_CENTER) != 0)
+  if ((joyState & JOYSTICK_CENTER) != 0U)
   {
     curr_value = 0;
     TIM_Cmd(LPC_TIM1, ENABLE);
@@ -254,14 +257,14 @@ static void rotate_motor(uint8_t joyState)
     curr_value = -500;
   }
 
-  if ((joyState & JOYSTICK_RIGHT) != 0)
+  if ((joyState & JOYSTICK_RIGHT) != 0U)
   {
-    curr_value+=10;
+    curr_value += 10;
   }
 
-  if ((joyState & JOYSTICK_LEFT) != 0)
+  if ((joyState & JOYSTICK_LEFT) != 0U)
   {
-    curr_value-=10;
+    curr_value -= 10;
   }
 
   if (curr_value > 1000)
@@ -271,8 +274,10 @@ static void rotate_motor(uint8_t joyState)
   else if (curr_value < -1000)
   {
     curr_value = -1000;
-  } else {
-
+  } 
+  else 
+  {
+    /* Zgodnie z MISRA puste else powinno zawierać komentarz */
   }
 
   if (curr_value > 0)
@@ -294,7 +299,6 @@ static void rotate_motor(uint8_t joyState)
 
 static void update_oled_theme_based_on_light(void)
 {
-  static uint8_t current_theme = 0;               // 0 - ciemny, 1 - jasny
   uint32_t lux = light_read();
 
   if (lux > LUX_LIGHT_THRESHOLD)
@@ -304,15 +308,17 @@ static void update_oled_theme_based_on_light(void)
   else if (lux < LUX_DARK_THRESHOLD)
   {
     curr_theme = DARK;
-  } else {
-
+  } 
+  else 
+  {
+    /* Puste else (MISRA) */
   }
 }
 
-#define LINE_COUNT 5
-#define LINE_LENGTH 12
+#define LINE_COUNT 5U
+#define LINE_LENGTH 12U
 
-static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1U] = {
   "            ",
   "            ",
   "            ",
@@ -322,34 +328,34 @@ static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
 
 static void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
-  if ((line >= LINE_COUNT) || (data == NULL))
+  /* Usunięto early return (MISRA 15.5) i wyeliminowano modyfikację argumentu 'data' (MISRA 17.8) */
+  if ((line < LINE_COUNT) && (data != NULL))
   {
-    return;
-  }
-
-  for (int i = 0; i < LINE_LENGTH; i++)
-  {
-    if (*data != '\0')
+    const uint8_t* ptr = data;
+    for (uint32_t i = 0U; i < LINE_LENGTH; i++)
     {
-      oled_buffer[line][i] = *data;
-      data++;
-    }
-    else
-    {
-      oled_buffer[line][i] = ' ';
+      if (*ptr != '\0')
+      {
+        oled_buffer[line][i] = *ptr;
+        ptr++;
+      }
+      else
+      {
+        oled_buffer[line][i] = ' ';
+      }
     }
   }
 }
 
-#define CHAR_WIDTH 6
-#define CHAR_HEIGHT 8
+#define CHAR_WIDTH 6U
+#define CHAR_HEIGHT 8U
 
 static void update_oled_with_buffer(void)
 {
   static enum Theme prev_theme = DARK;
   static uint8_t first_draw = TRUE;
 
-  static uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1] = {
+  static uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1U] = {
   "            ",
   "            ",
   "            ",
@@ -369,20 +375,20 @@ static void update_oled_with_buffer(void)
     oled_fg = OLED_COLOR_WHITE;
   }
 
-  if ((curr_theme != prev_theme) || first_draw)
+  if ((curr_theme != prev_theme) || (first_draw != 0U))
   {
     oled_clearScreen(oled_bg);
   }
 
-  for (int line = 0; line < LINE_COUNT; ++line)
+  for (uint32_t line = 0U; line < LINE_COUNT; ++line)
   {
-    for (int i = 0; i < LINE_LENGTH; ++i)
+    for (uint32_t i = 0U; i < LINE_LENGTH; ++i)
     {
-      if ((oled_buffer[line][i] != prev_oled_buffer[line][i]) || (curr_theme != prev_theme) || (first_draw))
+      if ((oled_buffer[line][i] != prev_oled_buffer[line][i]) || (curr_theme != prev_theme) || (first_draw != 0U))
       {
         oled_putChar(
-          i * (CHAR_WIDTH + 2),
-          line * (CHAR_HEIGHT + 2),
+          (uint16_t)(i * (CHAR_WIDTH + 2U)),
+          (uint16_t)(line * (CHAR_HEIGHT + 2U)),
           oled_buffer[line][i],
           oled_fg,
           oled_bg
@@ -398,9 +404,6 @@ static void update_oled_with_buffer(void)
 
 static void update_oled_message(void)
 {
-  //const uint8_t* state = (const uint8_t*)"";          // Stoi/Wciaganie/Opuszczanie
-  //const uint8_t* power = (const uint8_t*)"";          // wartosc mocy
-
   const char* state = "";          // Stoi/Wciaganie/Opuszczanie
   const char* power = "";          // wartosc mocy
 
@@ -415,8 +418,10 @@ static void update_oled_message(void)
   else if (curr_value < 0)
   {
     state = "Opuszczanie";
-  } else {
-
+  } 
+  else 
+  {
+    /* Puste else */
   }
 
   uint8_t tens = (uint8_t)((abs(curr_value) / 10) % 10) + '0';
@@ -436,18 +441,18 @@ static void update_oled_message(void)
 
   if (state[0] != '\0')
   {
-    oled_buffer_put(0, (const uint8_t*)state);
+    oled_buffer_put(0U, (const uint8_t*)state);
   }
 
   if (power[0] != '\0')
   {
-    oled_buffer_put(1, (const uint8_t*)power);
+    oled_buffer_put(1U, (const uint8_t*)power);
   }
 }
 
 static void init_pwm(void)
 {
-  LPC_PWM1->MR0 = 1000; // okres pwm
+  LPC_PWM1->MR0 = 1000U; // okres pwm
   LPC_PWM1->LER |= (1U << 0U); // zatwierdzenie MR0
   // rejestry MR są 32-bitowe
 
@@ -456,22 +461,22 @@ static void init_pwm(void)
   LPC_PWM1->TCR |= (1U << 0U) | (1U << 3U);
 
   PINSEL_CFG_Type PinCfg;
-  PinCfg.Portnum = 2;
-  PinCfg.Pinmode = 0;
-  PinCfg.Funcnum = 1;
-  PinCfg.OpenDrain = 0;
+  PinCfg.Portnum = 2U;
+  PinCfg.Pinmode = 0U;
+  PinCfg.Funcnum = 1U;
+  PinCfg.OpenDrain = 0U;
 
   // PIO1_9
-  PinCfg.Pinnum = 0;
+  PinCfg.Pinnum = 0U;
   PINSEL_ConfigPin(&PinCfg);
-  LPC_PWM1->MR1 = 500; // 50%
+  LPC_PWM1->MR1 = 500U; // 50%
   LPC_PWM1->LER |= (1U << 1U); // zatwierdzenie rejestru MR1
   LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 0U))); // aktywacja wyjscia sygnalu dla kanalu 2
 
   // PIO2_3
-  PinCfg.Pinnum = 3;
+  PinCfg.Pinnum = 3U;
   PINSEL_ConfigPin(&PinCfg);
-  LPC_PWM1->MR4 = 500; // 50%
+  LPC_PWM1->MR4 = 500U; // 50%
   LPC_PWM1->LER |= (1U << 4U); // zatwierdzenie MR4
   LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 3U)));
 }
@@ -480,13 +485,17 @@ static void my_set_pwm_value(int channel, int value)
 {
   if (channel == 1)
   {
-    LPC_PWM1->MR1 = value;
+    LPC_PWM1->MR1 = (uint32_t)value;
     LPC_PWM1->LER |= (1U << 1U);
   }
   else if (channel == 2)
   {
-    LPC_PWM1->MR4 = value;
+    LPC_PWM1->MR4 = (uint32_t)value;
     LPC_PWM1->LER |= (1U << 4U);
+  }
+  else
+  {
+    /* Ignoruj inny kanał */
   }
 }
 
@@ -495,19 +504,19 @@ static void init_ssp(void)
   SSP_CFG_Type SSP_ConfigStruct;
   PINSEL_CFG_Type PinCfg;
 
-  PinCfg.Funcnum = 2;
-  PinCfg.OpenDrain = 0;
-  PinCfg.Pinmode = 0;
-  PinCfg.Portnum = 0;
-  PinCfg.Pinnum = 7;
+  PinCfg.Funcnum = 2U;
+  PinCfg.OpenDrain = 0U;
+  PinCfg.Pinmode = 0U;
+  PinCfg.Portnum = 0U;
+  PinCfg.Pinnum = 7U;
   PINSEL_ConfigPin(&PinCfg);
-  PinCfg.Pinnum = 8;
+  PinCfg.Pinnum = 8U;
   PINSEL_ConfigPin(&PinCfg);
-  PinCfg.Pinnum = 9;
+  PinCfg.Pinnum = 9U;
   PINSEL_ConfigPin(&PinCfg);
-  PinCfg.Funcnum = 0;
-  PinCfg.Portnum = 2;
-  PinCfg.Pinnum = 2;
+  PinCfg.Funcnum = 0U;
+  PinCfg.Portnum = 2U;
+  PinCfg.Pinnum = 2U;
   PINSEL_ConfigPin(&PinCfg);
 
   SSP_ConfigStructInit(&SSP_ConfigStruct);
@@ -524,16 +533,16 @@ static void init_i2c(void)
   PINSEL_CFG_Type PinCfg;
 
   /* Initialize I2C2 pin connect */
-  PinCfg.Funcnum = 2;
-  PinCfg.Pinnum = 10; //GPIO_26-SDA P0.10 - do przesyłania danych
-  PinCfg.Portnum = 0;
+  PinCfg.Funcnum = 2U;
+  PinCfg.Pinnum = 10U; //GPIO_26-SDA P0.10 - do przesyłania danych
+  PinCfg.Portnum = 0U;
   PINSEL_ConfigPin(&PinCfg);
-  PinCfg.Pinnum = 11; //GPIO_27-SCL P0.11 - do synchronizacji
+  PinCfg.Pinnum = 11U; //GPIO_27-SCL P0.11 - do synchronizacji
   PINSEL_ConfigPin(&PinCfg);
 
   // Initialize I2C peripheral
   // 100kHZ - taktowanie zegara SCL
-  I2C_Init(LPC_I2C2, 100000);
+  I2C_Init(LPC_I2C2, 100000U);
 
   /* Enable I2C1 operation */
   I2C_Cmd(LPC_I2C2, ENABLE);
@@ -543,52 +552,55 @@ static void update_volume(void)
 {
   ADC_StartCmd(LPC_ADC, ADC_START_NOW);
   // Wait conversion complete
-  while (!(ADC_ChannelGetStatus(LPC_ADC, ADC_CHANNEL_0, ADC_DATA_DONE)));
+  while (ADC_ChannelGetStatus(LPC_ADC, ADC_CHANNEL_0, ADC_DATA_DONE) == RESET)
+  {
+      /* MISRA 15.6 - pętla while musi zawierać nawiasy {} */
+  }
   volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
 }
 
 static void update_leds(int8_t x, int8_t y)
 {
-  pca9532_setLeds(0x0000, 0xffff);
+  pca9532_setLeds(0x0000U, 0xFFFFU);
 
   if ((x > 7) || (x < -7))
   {
-    pca9532_setLeds(0x003, 0xffff);
+    pca9532_setLeds(0x0003U, 0xFFFFU);
   }
   if ((x > 17) || (x < -17))
   {
-    pca9532_setLeds(0x000F, 0xffff);
+    pca9532_setLeds(0x000FU, 0xFFFFU);
   }
   if ((x > 25) || (x < -25))
   {
-    pca9532_setLeds(0x003f, 0xffff);
+    pca9532_setLeds(0x003FU, 0xFFFFU);
   }
   if ((x > 32) || (x < -32))
   {
-    pca9532_setLeds(0x00ff, 0xffff);
+    pca9532_setLeds(0x00FFU, 0xFFFFU);
   }
 
   if ((y > 7) || (y < -7))
   {
-    pca9532_setLeds(0xC000, 0xffff);
+    pca9532_setLeds(0xC000U, 0xFFFFU);
   }
   if ((y > 17) || (y < -17))
   {
-    pca9532_setLeds(0xF000, 0xffff);
+    pca9532_setLeds(0xF000U, 0xFFFFU);
   }
   if ((y > 25) || (y < -25))
   {
-    pca9532_setLeds(0xFC00, 0xffff);
+    pca9532_setLeds(0xFC00U, 0xFFFFU);
   }
   if ((y > 32) || (y < -32))
   {
-    pca9532_setLeds(0xFF00, 0xffff);
+    pca9532_setLeds(0xFF00U, 0xFFFFU);
   }
 }
 
 int main(void)
 {
-  uint8_t state = 0;
+  uint8_t state = 0U;
   int8_t xoff = 0;
   int8_t yoff = 0;
   int8_t zoff = 0;
@@ -606,24 +618,25 @@ int main(void)
   joystick_init();
   oled_init();
   temp_init(&getTicks);
-  if (SysTick_Config(SystemCoreClock / 1000))
+  if (SysTick_Config(SystemCoreClock / 1000U) != 0U)
   {
     while (1)
     {
-
-    };  // Przechwycenie błędu jeśli zegar systemowy zawiedzie
+       /* Przechwycenie błędu jeśli zegar systemowy zawiedzie */
+    }  
   }
   acc_read(&x, &y, &z);
 
-  xoff = - x;
-  yoff = - y;
-  zoff = - z;
+  xoff = -x;
+  yoff = -y;
+  zoff = -z;
   bee_init();
 
   int cnt = 0;
   int is_tilt_warn = 0;
   int is_time_warn = 0;
   int is_temp_warn = 0;
+  
   while (1)
   {
     update_oled_theme_based_on_light();
@@ -649,7 +662,7 @@ int main(void)
       is_tilt_warn = 0;
     }
 
-    if (state != 0)
+    if (state != 0U)
     {
       rotate_motor(state);
 
@@ -672,39 +685,41 @@ int main(void)
       }
     }
 
-    uint8_t units = (ticks % 10) + '0';
-    uint8_t tens = ((ticks / 10) % 10) + '0';
+    uint8_t units = (ticks % 10U) + '0';
+    uint8_t tens = ((ticks / 10U) % 10U) + '0';
     uint8_t value[] = { tens, units, '\0' };
 
     // Line 2 (Y=30) mapped for timer
-    oled_buffer_put(2, value);
+    oled_buffer_put(2U, value);
 
-    if (ticks >= 50)
+    if (ticks >= 50U)
     {
       curr_value = 0;
       my_set_pwm_value(1, 0);
       my_set_pwm_value(2, 0);
       timer_stop();
     }
-    else if (ticks >= 30)
+    else if (ticks >= 30U)
     {
       is_time_warn = 1;
     }
-    else if (ticks == 0) 
+    else if (ticks == 0U) 
     {
       is_time_warn = 0;
-    } else {
-
+    } 
+    else 
+    {
+      /* Puste else */
     }
 
-    if (cnt % 100 == 0)
+    if ((cnt % 100) == 0)
     {
       int32_t t_val = temp_read();
-      uint8_t t_int = t_val / 10;
-      uint8_t t_dec = t_val % 10;
+      uint8_t t_int = (uint8_t)(t_val / 10);
+      uint8_t t_dec = (uint8_t)(t_val % 10);
       char temp_str[] = { 'T', 'e', 'm', 'p', ':', ' ', '0', '0', '.', '0', 'C', '\0' };
 
-      if (t_int >= 30)
+      if (t_int >= 30U)
       {
         is_temp_warn = 1;
       }
@@ -713,8 +728,8 @@ int main(void)
         is_temp_warn = 0;
       }
 
-      temp_str[6] = ((t_int / 10) % 10) + '0';
-      temp_str[7] = (t_int % 10) + '0';
+      temp_str[6] = ((t_int / 10U) % 10U) + '0';
+      temp_str[7] = (t_int % 10U) + '0';
       temp_str[9] = t_dec + '0';
       if (temp_str[6] == '0')
       {
@@ -722,25 +737,26 @@ int main(void)
       }
 
       // Line 4 (Y=50) mapped for temperature
-      oled_buffer_put(4, (const uint8_t*)temp_str);
+      oled_buffer_put(4U, (const uint8_t*)temp_str);
       cnt = 0;
     }
 
-    if (is_tilt_warn) 
+    /* Zmiana MISRA 14.4 - uzywamy jawnych warunków dla is_*_warn */
+    if (is_tilt_warn != 0) 
     {
-      oled_buffer_put(3, tilt_alert);
+      oled_buffer_put(3U, tilt_alert);
     } 
-    else if (is_time_warn) 
+    else if (is_time_warn != 0) 
     {
-      oled_buffer_put(3, time_alert);
+      oled_buffer_put(3U, time_alert);
     } 
-    else if (is_temp_warn)
+    else if (is_temp_warn != 0)
     {
-      oled_buffer_put(3, temp_alert);
+      oled_buffer_put(3U, temp_alert);
     } 
     else 
     {
-      oled_buffer_put(3, reset);
+      oled_buffer_put(3U, reset);
     }
 
     // Flush to screen only when lines actually changed
@@ -749,7 +765,7 @@ int main(void)
     update_volume();
 
     cnt++;
-    Timer0_Wait(1);
+    Timer0_Wait(1U);
   }
 }
 
@@ -758,7 +774,8 @@ void check_failed(uint8_t *file, uint32_t line)
   (void)file;
   (void)line;
 
-  while(1)
+  while (1)
   {
+      /* Aktywne czekanie / zatrzymanie po awarii asercji */
   }
 }
