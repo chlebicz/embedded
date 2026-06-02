@@ -1,11 +1,13 @@
 #include <stdlib.h>
 
+#include "LPC17xx.h"        /* Dodano dla usunięcia błędów MISRA 17.3 związanych z m m.in. NVIC i LPC_SC */
 #include "lpc17xx_pinsel.h"
 #include "lpc17xx_gpio.h"
 #include "lpc17xx_adc.h"
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
+#include "lpc17xx_dac.h"    /* Dodano dla usunięcia błędów MISRA 17.3 (funkcje DAC_Init) */
 
 #include "joystick.h"
 #include "oled.h"
@@ -118,7 +120,7 @@ static void increase_amplifier_volume(int levels)
   {
     // Impuls zegara (Wysoki -> Niski)
     GPIO_SetValue(0U, ((uint32_t)1U<<27U));    // CLK High
-    delay_us(10U);                 // Krótka przerwa
+    delay_gus(10U);                 // Krótka przerwa
     GPIO_ClearValue(0U, ((uint32_t)1U<<27U));  // CLK Low
     delay_us(10U);                 // Krótka przerwa
   }
@@ -209,11 +211,10 @@ void TIMER1_IRQHandler(void)
 #define AUDIO_START_OFFSET 44U
 
 void TIMER2_IRQHandler(void)
-{
-  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;  
-
+{  
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
   {
+	  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
       // Wyczyść flagę przerwania
       TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
@@ -363,7 +364,10 @@ static void update_oled_with_buffer(void)
   "            "
  };
 
-  oled_color_t oled_fg, oled_bg;
+  /* Poprawka MISRA 12.3: Rozdzielono wielokrotne deklaracje zmiennych dla uniknięcia wirtualnego operatora przecinka */
+  oled_color_t oled_fg;
+  oled_color_t oled_bg;
+
   if (curr_theme == LIGHT)
   {
     oled_bg = OLED_COLOR_WHITE;
@@ -415,28 +419,32 @@ static void update_oled_message(void)
   {
     state = "Wciaganie";
   }
-  else if (curr_value < 0)
+  else
   {
     state = "Opuszczanie";
-  } 
-  else 
-  {
-    /* Puste else */
   }
 
-  uint8_t tens = (uint8_t)((abs(curr_value) / 10) % 10) + '0';
-  uint8_t hundreds = (uint8_t)((abs(curr_value) / 100) % 10) + '0';
-  uint8_t thousands = (uint8_t)((abs(curr_value) / 1000) % 10) + '0';
+  /* Poprawka MISRA 10.3 & 10.8: Złożone operacje przed rzutowaniem przeniesione do tymczasowych zmiennych uint32_t */
+  uint32_t u_curr = (uint32_t)abs(curr_value);
+  
+  uint32_t calc_tens = ((u_curr / 10U) % 10U) + 48U;
+  uint8_t tens = (uint8_t)calc_tens;
+  
+  uint32_t calc_hundreds = ((u_curr / 100U) % 10U) + 48U;
+  uint8_t hundreds = (uint8_t)calc_hundreds;
+  
+  uint32_t calc_thousands = ((u_curr / 1000U) % 10U) + 48U;
+  uint8_t thousands = (uint8_t)calc_thousands;
 
   if ((curr_value == 1000) || (curr_value == -1000))
   {
-    thousands = '5';
+    thousands = (uint8_t)53U; /* ASCII '5' jako uint8_t */
   }
 
   char secondLine[] = { '1', '0', '0', '%', ' ', 'm', 'o', 'c', 'y', '\0' };
-  secondLine[0] = thousands;
-  secondLine[1] = hundreds;
-  secondLine[2] = tens;
+  secondLine[0] = (char)thousands;
+  secondLine[1] = (char)hundreds;
+  secondLine[2] = (char)tens;
   power = secondLine;
 
   if (state[0] != '\0')
@@ -600,7 +608,7 @@ static void update_leds(int8_t x, int8_t y)
 
 int main(void)
 {
-  uint8_t state = 0U;
+  //uint8_t state = 0U;
   int8_t xoff = 0;
   int8_t yoff = 0;
   int8_t zoff = 0;
@@ -633,14 +641,14 @@ int main(void)
   bee_init();
 
   int cnt = 0;
-  int is_tilt_warn = 0;
+  //int is_tilt_warn = 0;
   int is_time_warn = 0;
   int is_temp_warn = 0;
   
   while (1)
   {
     update_oled_theme_based_on_light();
-    state = joystick_read();
+    uint8_t state = joystick_read();
     acc_read(&x, &y, &z);
     x = x + xoff;
     y = y + yoff;
@@ -653,6 +661,7 @@ int main(void)
     const uint8_t temp_alert[] = "TEMP!";
     const uint8_t reset[] = "";
 
+	int is_tilt_warn;
     if ((x > 17) || (x < -17) || (y > 17) || (y < -17))
     {
       is_tilt_warn = 1;
@@ -685,9 +694,14 @@ int main(void)
       }
     }
 
-    uint8_t units = (ticks % 10U) + '0';
-    uint8_t tens = ((ticks / 10U) % 10U) + '0';
-    uint8_t value[] = { tens, units, '\0' };
+    /* Poprawka MISRA 10.8: Zmiana literału '0' na 48U i unikanie bezpośredniego rzutowania złożonego wyrażenia */
+    uint32_t calc_units = (ticks % 10U) + 48U;
+    uint8_t units = (uint8_t)calc_units;
+    
+    uint32_t calc_tens_ticks = ((ticks / 10U) % 10U) + 48U;
+    uint8_t tens_ticks = (uint8_t)calc_tens_ticks;
+    
+    uint8_t value[] = { tens_ticks, units, '\0' };
 
     // Line 2 (Y=30) mapped for timer
     oled_buffer_put(2U, value);
@@ -715,8 +729,12 @@ int main(void)
     if ((cnt % 100) == 0)
     {
       int32_t t_val = temp_read();
-      uint8_t t_int = (uint8_t)(t_val / 10);
-      uint8_t t_dec = (uint8_t)(t_val % 10);
+      
+      int32_t t_int_calc = t_val / 10;
+      int32_t t_dec_calc = t_val % 10;
+      uint8_t t_int = (uint8_t)t_int_calc;
+      uint8_t t_dec = (uint8_t)t_dec_calc;
+      
       char temp_str[] = { 'T', 'e', 'm', 'p', ':', ' ', '0', '0', '.', '0', 'C', '\0' };
 
       if (t_int >= 30U)
@@ -728,9 +746,18 @@ int main(void)
         is_temp_warn = 0;
       }
 
-      temp_str[6] = ((t_int / 10U) % 10U) + '0';
-      temp_str[7] = (t_int % 10U) + '0';
-      temp_str[9] = t_dec + '0';
+      /* Poprawka MISRA 10.8: Użyto zmiennych pomocniczych typu uin32_t dla bezpieczeństwa operacji */
+      uint32_t t_int_u32 = (uint32_t)t_int;
+      uint32_t char1_val = ((t_int_u32 / 10U) % 10U) + 48U;
+      temp_str[6] = (char)char1_val;
+
+      uint32_t char2_val = (t_int_u32 % 10U) + 48U;
+      temp_str[7] = (char)char2_val;
+
+      uint32_t t_dec_u32 = (uint32_t)t_dec;
+      uint32_t char3_val = t_dec_u32 + 48U;
+      temp_str[9] = (char)char3_val;
+      
       if (temp_str[6] == '0')
       {
         temp_str[6] = ' ';
