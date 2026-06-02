@@ -100,9 +100,30 @@ static void timer_stop(void)
   ticks = 0;
 }
 
+static void init_delay_timer(void)
+{
+  TIM_TIMERCFG_Type TIM_ConfigStruct;
+
+  // Set prescaler to tick exactly every 1 microsecond
+  TIM_ConfigStruct.PrescaleOption = TIM_PRESCALE_USVAL;
+  TIM_ConfigStruct.PrescaleValue = 1;
+  
+  // Initialize Timer 3
+  TIM_Init(LPC_TIM3, TIM_TIMER_MODE, &TIM_ConfigStruct);
+}
+
 static void delay_us(uint32_t us)
 {
-  for (volatile uint32_t i = 0; i < (us * 30); i++) {}
+  LPC_TIM3->TCR = 0x02; // Reset Timer Counter (TC = 0)
+  LPC_TIM3->TCR = 0x01; // Enable and Start Timer
+
+  // Wait until the Timer Counter reaches the requested microseconds
+  while (LPC_TIM3->TC < us) 
+  {
+    // Blocking wait
+  }
+
+  LPC_TIM3->TCR = 0x00; // Stop the Timer to save power
 }
 
 static void increase_amplifier_volume(int levels)
@@ -256,12 +277,12 @@ static void rotate_motor(uint8_t joyState)
 
   if ((joyState & JOYSTICK_RIGHT) != 0)
   {
-    curr_value+=10;
+    curr_value+=3;
   }
 
   if ((joyState & JOYSTICK_LEFT) != 0)
   {
-    curr_value-=10;
+    curr_value-=3;
   }
 
   if (curr_value > 1000)
@@ -549,40 +570,52 @@ static void update_volume(void)
 
 static void update_leds(int8_t x, int8_t y)
 {
-  pca9532_setLeds(0x0000, 0xffff);
+  uint16_t led_mask = 0x0000;
 
-  if ((x > 7) || (x < -7))
-  {
-    pca9532_setLeds(0x003, 0xffff);
-  }
-  if ((x > 17) || (x < -17))
-  {
-    pca9532_setLeds(0x000F, 0xffff);
-  }
-  if ((x > 25) || (x < -25))
-  {
-    pca9532_setLeds(0x003f, 0xffff);
-  }
   if ((x > 32) || (x < -32))
   {
-    pca9532_setLeds(0x00ff, 0xffff);
+    led_mask |= 0x00FF;
+  }
+  else if ((x > 25) || (x < -25))
+  {
+    led_mask |= 0x003F;
+  }
+  else if ((x > 17) || (x < -17))
+  {
+    led_mask |= 0x000F;
+  }
+  else if ((x > 7) || (x < -7))
+  {
+    led_mask |= 0x0003;
   }
 
-  if ((y > 7) || (y < -7))
-  {
-    pca9532_setLeds(0xC000, 0xffff);
-  }
-  if ((y > 17) || (y < -17))
-  {
-    pca9532_setLeds(0xF000, 0xffff);
-  }
-  if ((y > 25) || (y < -25))
-  {
-    pca9532_setLeds(0xFC00, 0xffff);
-  }
   if ((y > 32) || (y < -32))
   {
-    pca9532_setLeds(0xFF00, 0xffff);
+    led_mask |= 0xFF00;
+  }
+  else if ((y > 25) || (y < -25))
+  {
+    led_mask |= 0xFC00;
+  }
+  else if ((y > 17) || (y < -17))
+  {
+    led_mask |= 0xF000;
+  }
+  else if ((y > 7) || (y < -7))
+  {
+    led_mask |= 0xC000;
+  }
+
+  static uint8_t prev_turned = FALSE;
+  if ((x > 7) || (x < -7) || (y > 7) || (y < -7))
+  {
+    pca9532_setLeds(led_mask, 0xFFFF);
+    prev_turned = TRUE;
+  }
+  else if (prev_turned)
+  {
+    pca9532_setLeds(led_mask, 0xFFFF);
+    prev_turned = FALSE;
   }
 }
 
@@ -602,6 +635,8 @@ int main(void)
   init_pwm();
   acc_init();
   light_enable();
+
+  init_delay_timer();
 
   joystick_init();
   oled_init();
