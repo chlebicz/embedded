@@ -30,7 +30,6 @@ void check_failed(uint8_t *file, uint32_t line);
 /* Forward declarations for static functions used before definition */
 static void update_oled_message(void);
 static void my_set_pwm_value(int32_t channel, int32_t value);
-extern void Timer0_Wait(uint32_t time); /* Prototyp usunie ostrzezenia o braku deklaracji */
 
 enum Theme
 {
