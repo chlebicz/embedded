@@ -29,7 +29,7 @@ void check_failed(uint8_t *file, uint32_t line);
 
 /* Forward declarations for static functions used before definition */
 static void update_oled_message(void);
-static void my_set_pwm_value(int channel, int value);
+static void set_pwm_value(int channel, int value);
 void Timer0_Wait(uint32_t time); /* Prototyp usunie ostrzezenia o braku deklaracji */
 
 enum Theme
@@ -301,18 +301,18 @@ static void rotate_motor(uint8_t joyState)
 
   if (curr_value > 0)
   {
-    my_set_pwm_value(1, curr_value); // Pin P2.0 dostaje sygnał PWM (pulsujące napięcie)
-    my_set_pwm_value(2, 0);          // Pin P2.3 jest zwarty do masy (GND)
+    set_pwm_value(1, curr_value); // Pin P2.0 dostaje sygnał PWM (pulsujące napięcie)
+    set_pwm_value(2, 0);          // Pin P2.3 jest zwarty do masy (GND)
   }
   else if (curr_value < 0)
   {
-    my_set_pwm_value(1, 0);           // Pin P2.0 jest zwarty do masy
-    my_set_pwm_value(2, -curr_value); // Pin P2.3 dostaje sygnał PWM
+    set_pwm_value(1, 0);           // Pin P2.0 jest zwarty do masy
+    set_pwm_value(2, -curr_value); // Pin P2.3 dostaje sygnał PWM
   }
   else
   {
-    my_set_pwm_value(1, 0);
-    my_set_pwm_value(2, 0);
+    set_pwm_value(1, 0);
+    set_pwm_value(2, 0);
   }
 }
 
@@ -375,12 +375,12 @@ static void update_oled_with_buffer(void)
   static uint8_t first_draw = TRUE;
 
   static uint8_t prev_oled_buffer[LINE_COUNT][LINE_LENGTH + 1U] = {
-  "            ",
-  "            ",
-  "            ",
-  "            ",
-  "            "
- };
+    "            ",
+    "            ",
+    "            ",
+    "            ",
+    "            "
+  };
 
   /* Poprawka MISRA 12.3: Rozdzielono wielokrotne deklaracje zmiennych dla uniknięcia wirtualnego operatora przecinka */
   oled_color_t oled_fg;
@@ -507,7 +507,7 @@ static void init_pwm(void)
   LPC_PWM1->PCR |= (((uint32_t)1U << (9U + 3U)));
 }
 
-static void my_set_pwm_value(int channel, int value)
+static void set_pwm_value(int channel, int value)
 {
   if (channel == 1)
   {
@@ -693,7 +693,7 @@ int main(void)
     const uint8_t temp_alert[] = "TEMP!";
     const uint8_t reset[] = "";
 
-	int is_tilt_warn;
+    int is_tilt_warn;
     if ((x > 17) || (x < -17) || (y > 17) || (y < -17))
     {
       is_tilt_warn = 1;
@@ -741,8 +741,8 @@ int main(void)
     if (ticks >= 50U)
     {
       curr_value = 0;
-      my_set_pwm_value(1, 0);
-      my_set_pwm_value(2, 0);
+      set_pwm_value(1, 0);
+      set_pwm_value(2, 0);
       timer_stop();
     }
     else if (ticks >= 30U)
