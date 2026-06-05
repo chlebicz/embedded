@@ -15,7 +15,7 @@
 #include "acc.h"
 
 #include "temp.h"
-#include "fatbee.h"
+#include "music.h"
 #include "pca9532.h" /* Dodano dla pca9532_setLeds */
 
 #define LUX_DARK_THRESHOLD   100U
@@ -144,7 +144,7 @@ static void increase_amplifier_volume(int levels)
   }
 }
 
-static void bee_init(void)
+static void music_init(void)
 {
   static const uint32_t SAMPLE_RATE = 8000U; // hz
   // 1. OBUDŹ WZMACNIACZ LM4811
@@ -225,7 +225,7 @@ void TIMER1_IRQHandler(void)
   }
 }
 
-#define FATBEE_SIZE (sizeof(fatbee) / sizeof(fatbee[0]))
+#define MUSIC_SIZE (sizeof(music) / sizeof(music[0]))
 #define AUDIO_START_OFFSET 44U
 
 void TIMER2_IRQHandler(void)
@@ -233,28 +233,28 @@ void TIMER2_IRQHandler(void)
   if (TIM_GetIntStatus(LPC_TIM2, TIM_MR0_INT) == SET)
   {
 	  static volatile uint32_t current_sample_index = AUDIO_START_OFFSET;
-      // Wyczyść flagę przerwania
-      TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
+    // Wyczyść flagę przerwania
+    TIM_ClearIntPending(LPC_TIM2, TIM_MR0_INT);
 
-      // Pobierz 8-bitową próbkę (0..255)
-      uint32_t sample = fatbee[current_sample_index];
+    // Pobierz 8-bitową próbkę (0..255)
+    uint32_t sample = music[current_sample_index];
 
-      // Skalowanie głośności:
-      // volume: 0..4096
-      // sample DAC: 10-bit (0..1023)
-      uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
+    // Skalowanie głośności:
+    // volume: 0..4096
+    // sample DAC: 10-bit (0..1023)
+    uint32_t dac_value = ((sample << 2U) * volume) >> 12U;
 
-      // Wyślij do DAC
-      DAC_UpdateValue(LPC_DAC, dac_value);
+    // Wyślij do DAC
+    DAC_UpdateValue(LPC_DAC, dac_value);
 
-      // Następna próbka
-      current_sample_index++;
+    // Następna próbka
+    current_sample_index++;
 
-      // Zapętlenie audio
-      if (current_sample_index >= FATBEE_SIZE)
-      {
-          current_sample_index = AUDIO_START_OFFSET;
-      }
+    // Zapętlenie audio
+    if (current_sample_index >= MUSIC_SIZE)
+    {
+      current_sample_index = AUDIO_START_OFFSET;
+    }
   }
 }
 
@@ -580,7 +580,7 @@ static void update_volume(void)
   // Wait conversion complete
   while (ADC_ChannelGetStatus(LPC_ADC, ADC_CHANNEL_0, ADC_DATA_DONE) == RESET)
   {
-      /* MISRA 15.6 - pętla while musi zawierać nawiasy {} */
+    /* MISRA 15.6 - pętla while musi zawierać nawiasy {} */
   }
   volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
 }
@@ -662,15 +662,15 @@ int main(void)
   {
     while (1)
     {
-       /* Przechwycenie błędu jeśli zegar systemowy zawiedzie */
-    }  
+      /* Przechwycenie błędu jeśli zegar systemowy zawiedzie */
+    }
   }
   acc_read(&x, &y, &z);
 
   xoff = -x;
   yoff = -y;
   zoff = -z;
-  bee_init();
+  music_init();
 
   int cnt = 0;
   //int is_tilt_warn = 0;
@@ -835,6 +835,6 @@ void check_failed(uint8_t *file, uint32_t line)
 
   while (1)
   {
-      /* Aktywne czekanie / zatrzymanie po awarii asercji */
+    /* Aktywne czekanie / zatrzymanie po awarii asercji */
   }
 }
