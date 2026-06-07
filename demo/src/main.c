@@ -1,36 +1,30 @@
 #include <stdlib.h>
-
-#include "LPC17xx.h"        /* Dodano dla usunięcia błędów MISRA 17.3 związanych z m m.in. NVIC i LPC_SC */
+#include "LPC17xx.h"
 #include "lpc17xx_pinsel.h"
 #include "lpc17xx_gpio.h"
 #include "lpc17xx_adc.h"
 #include "lpc17xx_i2c.h"
 #include "lpc17xx_ssp.h"
 #include "lpc17xx_timer.h"
-#include "lpc17xx_dac.h"    /* Dodano dla usunięcia błędów MISRA 17.3 (funkcje DAC_Init) */
-
+#include "lpc17xx_dac.h"
 #include "joystick.h"
 #include "oled.h"
 #include "light.h"
 #include "acc.h"
-
 #include "temp.h"
 #include "music.h"
-#include "pca9532.h" /* Dodano dla pca9532_setLeds */
+#include "pca9532.h"
 
 #define LUX_DARK_THRESHOLD   100U
 #define LUX_LIGHT_THRESHOLD  150U
 
-/* Forward declarations to satisfy MISRA-C:2012 Rule 8.4 */
 void SysTick_Handler(void);
 void TIMER1_IRQHandler(void);
 void TIMER2_IRQHandler(void);
 void check_failed(uint8_t *file, uint32_t line);
-
-/* Forward declarations for static functions used before definition */
 static void update_oled_message(void);
 static void set_pwm_value(int channel, int value);
-void Timer0_Wait(uint32_t time); /* Prototyp usunie ostrzezenia o braku deklaracji */
+void Timer0_Wait(uint32_t time);
 
 enum Theme
 {
@@ -316,6 +310,14 @@ static void rotate_motor(uint8_t joyState)
   }
 }
 
+/**
+ * Funkcja aktualizuje obecny motyw graficzny wyświetlacza OLED
+ * na podstawie natężenia światła. Matyw zmienia sie po osiagnieciu dwóch
+ * oddalonych od siebie progób by zapobiec migotaniu.
+ * 
+ * Wymaga zdefiniowanych makr `LUX_LIGHT_THRESHOLD` oraz `LUX_DARK_THRESHOLD` 
+ * okreslajacych progi zmiany motywu
+ */
 static void update_oled_theme_based_on_light(void)
 {
   uint32_t lux = light_read();
@@ -347,7 +349,6 @@ static uint8_t oled_buffer[LINE_COUNT][LINE_LENGTH + 1U] = {
 
 static void oled_buffer_put(uint8_t line, const uint8_t* data)
 {
-  /* Usunięto early return (MISRA 15.5) i wyeliminowano modyfikację argumentu 'data' (MISRA 17.8) */
   if ((line < LINE_COUNT) && (data != NULL))
   {
     const uint8_t* ptr = data;
@@ -382,7 +383,6 @@ static void update_oled_with_buffer(void)
     "            "
   };
 
-  /* Poprawka MISRA 12.3: Rozdzielono wielokrotne deklaracje zmiennych dla uniknięcia wirtualnego operatora przecinka */
   oled_color_t oled_fg;
   oled_color_t oled_bg;
 
@@ -442,7 +442,6 @@ static void update_oled_message(void)
     state = "Opuszczanie";
   }
 
-  /* Poprawka MISRA 10.3 & 10.8: Złożone operacje przed rzutowaniem przeniesione do tymczasowych zmiennych uint32_t */
   uint32_t u_curr = (uint32_t)abs(curr_value);
   
   uint32_t calc_tens = ((u_curr / 10U) % 10U) + 48U;
@@ -585,9 +584,22 @@ static void update_volume(void)
   volume = ADC_ChannelGetData(LPC_ADC, ADC_CHANNEL_0); // 0 to 4096
 }
 
+/**
+ * Funkcja aktualizuje wskaźnik wychylenia na 16 diodach LED (układ PCA9532) na podstawie danych z akcelerometru.
+ * * Funkcja przetwarza 8-bitowe odczyty z akcelerometru (po kompensacji offsetu) w dwóch osiach: 
+ * X (lewo-prawo) oraz Y (przód-tył). Wizualizuje amplitudę wychylenia za pomocą maski bitowej, 
+ * gdzie oś X steruje dolnym bajtem (diody 0-7), a oś Y górnym bajtem (diody 8-15) układu PCA9532.
+ * Zaimplementowano strefę martwą (od -7 do 7) oraz maszynę stanów redukującą ruch na magistrali I2C
+ * podczas przebywania urządzenia w spoczynku.
+ *
+ * x -  skompensowany odczyt wychylenia z akcelerometru w osi X (lewo - prawo).
+ * y -  skompensowany odczyt wychylenia z akcelerometru w osi Y (przód - tył).
+ *
+ * Funkcja bezpośrednio wywołuje sprzętowe API `pca9532_setLeds()`.
+ */
 static void update_leds(int8_t x, int8_t y)
 {
-  uint16_t led_mask = 0x0000;
+  uint16_t led_mask = 0x0000; //poczatkowa maska oznaczajaca zgaszone wszytskie ledy
 
   if ((x > 32) || (x < -32))
   {
@@ -673,7 +685,6 @@ int main(void)
   music_init();
 
   int cnt = 0;
-  //int is_tilt_warn = 0;
   int is_time_warn = 0;
   int is_temp_warn = 0;
   
@@ -726,7 +737,6 @@ int main(void)
       }
     }
 
-    /* Poprawka MISRA 10.8: Zmiana literału '0' na 48U i unikanie bezpośredniego rzutowania złożonego wyrażenia */
     uint32_t calc_units = (ticks % 10U) + 48U;
     uint8_t units = (uint8_t)calc_units;
     
@@ -778,7 +788,6 @@ int main(void)
         is_temp_warn = 0;
       }
 
-      /* Poprawka MISRA 10.8: Użyto zmiennych pomocniczych typu uin32_t dla bezpieczeństwa operacji */
       uint32_t t_int_u32 = (uint32_t)t_int;
       uint32_t char1_val = ((t_int_u32 / 10U) % 10U) + 48U;
       temp_str[6] = (char)char1_val;
@@ -800,7 +809,6 @@ int main(void)
       cnt = 0;
     }
 
-    /* Zmiana MISRA 14.4 - uzywamy jawnych warunków dla is_*_warn */
     if (is_tilt_warn != 0) 
     {
       oled_buffer_put(3U, tilt_alert);
