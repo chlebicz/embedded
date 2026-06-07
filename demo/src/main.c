@@ -586,7 +586,7 @@ static void update_volume(void)
 
 /**
  * Funkcja aktualizuje wskaźnik wychylenia na 16 diodach LED (układ PCA9532) na podstawie danych z akcelerometru.
- * * Funkcja przetwarza 8-bitowe odczyty z akcelerometru (po kompensacji offsetu) w dwóch osiach: 
+ * Funkcja przetwarza 8-bitowe odczyty z akcelerometru (po kompensacji offsetu) w dwóch osiach: 
  * X (lewo-prawo) oraz Y (przód-tył). Wizualizuje amplitudę wychylenia za pomocą maski bitowej, 
  * gdzie oś X steruje dolnym bajtem (diody 0-7), a oś Y górnym bajtem (diody 8-15) układu PCA9532.
  * Zaimplementowano strefę martwą (od -7 do 7) oraz maszynę stanów redukującą ruch na magistrali I2C
