@@ -453,11 +453,6 @@ static void update_oled_message(void)
   uint32_t calc_thousands = ((u_curr / 1000U) % 10U) + 48U;
   uint8_t thousands = (uint8_t)calc_thousands;
 
-  if ((curr_value == 1000) || (curr_value == -1000))
-  {
-    thousands = (uint8_t)53U; /* ASCII '5' jako uint8_t */
-  }
-
   char secondLine[] = { '1', '0', '0', '%', ' ', 'm', 'o', 'c', 'y', '\0' };
   secondLine[0] = (char)thousands;
   secondLine[1] = (char)hundreds;
